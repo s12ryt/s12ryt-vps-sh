@@ -53,15 +53,15 @@ install_launcher() {
 
     if (( EUID != 0 )) && [[ ":${PATH}:" != *":${launcher_dir}:"* ]]; then
         printf '提示：請執行以下命令，讓 s 可直接使用：\n'
-        printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"'
+        printf '%s\n' "export PATH=\"\$HOME/.local/bin:\$PATH\""
     fi
 }
 
 print_menu() {
-    cat <<'EOF'
+    cat <<EOF
 -----
 s12ryt 的 VPS 腳本
-版本: v1.0.0
+版本: v${VERSION}
 -----
 1. 系統資訊
 2. 更新系統
