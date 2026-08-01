@@ -17,3 +17,5 @@
 - 建立系統資訊與一般系統升級契約，GitHub Actions run `30680599550` 因缺少目標函式按預期失敗；最小實作完成後 run `30680665994` 通過 Bash 語法、ShellCheck 與全部 8 項 Bats，完成第二輪 GREEN。
 - 新增 IP 分類、11 站點連通性、7 項有限服務地區解析與選單整合的第三輪測試；測試只使用 fixture/mock，不呼叫外部服務。
 - GitHub Actions run `30680830413` 中既有 8 項測試全綠，新增 5 項分別因網路函式及選單接線不存在而按預期失敗，形成第三輪 RED 證據。
+- 完成網路診斷最小實作；GitHub Actions run `30680943003` 通過 Bash 語法、ShellCheck 與全部 13 項 Bats，完成第三輪 GREEN。
+- 建立 PRoot 路徑、固定 OCI 映像、架構映射、安裝/登入/列表/重裝/移除、破壞性確認與 helper 原子保護契約；測試全程使用 mock，不下載 rootfs 或執行 PRoot。
