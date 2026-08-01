@@ -222,7 +222,8 @@ install_nodejs() {
 
     printf '套件管理器: %s\n' "$manager"
     printf '是否使用 NodeSource 安裝 Node.js？ [y/N]: '
-    IFS= read -r confirmation || confirmation=""
+    confirmation=""
+    IFS= read -r confirmation || true
     case "$confirmation" in
         y|Y|yes|YES)
             ;;
@@ -234,7 +235,8 @@ install_nodejs() {
 
     printf '可選版本：20、22、24（26 目前不是 LTS）\n'
     printf '請輸入 Node.js major: '
-    IFS= read -r major || major=""
+    major=""
+    IFS= read -r major || true
     case "$major" in
         20|22|24)
             ;;
@@ -246,7 +248,8 @@ install_nodejs() {
     if [[ "$major" == "20" ]]; then
         printf '警告：Node.js 20 已於 2026-03-24 EOL，不再接受官方安全維護。\n'
         printf '仍要安裝 Node.js 20？ [y/N]: '
-        IFS= read -r confirmation || confirmation=""
+        confirmation=""
+        IFS= read -r confirmation || true
         case "$confirmation" in
             y|Y|yes|YES)
                 ;;
