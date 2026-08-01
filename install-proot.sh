@@ -72,7 +72,7 @@ run_with_privilege() {
         return
     fi
     if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-        sudo "$@"
+        sudo -n "$@"
         return
     fi
     printf '錯誤：安裝 PRoot 主機依賴需要 root 權限或可用的 sudo。\n' >&2
@@ -106,12 +106,33 @@ install_host_dependencies() {
         zypper)
             run_with_privilege zypper --non-interactive install proot python3
             ;;
-    esac
+    esac || {
+        printf '錯誤：無法安裝 PRoot 主機依賴；請確認官方套件來源提供 proot。\n' >&2
+        return 1
+    }
 }
 
 python_is_supported() {
-    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+    local python_bin="${1:-python3}"
+
+    "$python_bin" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
         >/dev/null 2>&1
+}
+
+find_supported_python() {
+    local candidate python_path
+
+    for candidate in python3 python3.15 python3.14 python3.13 python3.12 \
+        python3.11 python3.10 python3.9; do
+        python_path="$(command -v "$candidate" 2>/dev/null || true)"
+        if [[ -n "$python_path" ]] && python_is_supported "$python_path"; then
+            printf '%s\n' "$python_path"
+            return 0
+        fi
+    done
+    printf '錯誤：proot-distro %s 需要 Python 3.9 以上版本。\n' \
+        "$PROOT_DISTRO_VERSION" >&2
+    return 1
 }
 
 resolve_proot_distro_bin() {
@@ -134,8 +155,37 @@ resolve_proot_distro_bin() {
     return 1
 }
 
+install_proot_distro_package() {
+    local python_bin="$1"
+    local tool_dir="${S12RYT_PROOT_ROOT}/tool"
+    local pip_bin
+
+    if [[ ! -x "${tool_dir}/bin/python3" ]]; then
+        "$python_bin" -m venv "$tool_dir" || {
+            printf '錯誤：無法建立 proot-distro Python 環境。\n' >&2
+            return 1
+        }
+    fi
+    pip_bin="${tool_dir}/bin/pip"
+    [[ -x "$pip_bin" ]] || {
+        printf '錯誤：proot-distro Python 環境缺少 pip。\n' >&2
+        return 1
+    }
+    "$pip_bin" install --disable-pip-version-check \
+        --index-url https://pypi.org/simple \
+        "proot-distro==${PROOT_DISTRO_VERSION}" || {
+        printf '錯誤：無法從 HTTPS PyPI 安裝 proot-distro。\n' >&2
+        return 1
+    }
+    export S12RYT_PROOT_DISTRO_BIN="${tool_dir}/bin/proot-distro"
+    [[ -x "$S12RYT_PROOT_DISTRO_BIN" ]] || {
+        printf '錯誤：proot-distro 安裝完成但入口不存在。\n' >&2
+        return 1
+    }
+}
+
 setup_proot_tool() {
-    local tool_dir pip_bin
+    local python_bin
 
     [[ "$(uname -s)" == "Linux" ]] || {
         printf '錯誤：PRoot 僅支援 Linux 主機。\n' >&2
@@ -143,7 +193,8 @@ setup_proot_tool() {
     }
     configure_proot_environment || return 1
 
-    if command -v proot >/dev/null 2>&1 && python_is_supported && \
+    python_bin="$(find_supported_python 2>/dev/null || true)"
+    if command -v proot >/dev/null 2>&1 && [[ -n "$python_bin" ]] && \
         resolve_proot_distro_bin >/dev/null 2>&1; then
         printf 'PRoot 管理工具已可使用。\n'
         return 0
@@ -154,29 +205,8 @@ setup_proot_tool() {
         printf '錯誤：套件安裝後仍找不到 proot。\n' >&2
         return 1
     }
-    python_is_supported || {
-        printf '錯誤：proot-distro %s 需要 Python 3.9 以上版本。\n' \
-            "$PROOT_DISTRO_VERSION" >&2
-        return 1
-    }
-
-    tool_dir="${S12RYT_PROOT_ROOT}/tool"
-    if [[ ! -x "${tool_dir}/bin/python3" ]]; then
-        python3 -m venv "$tool_dir" || {
-            printf '錯誤：無法建立 proot-distro Python 環境。\n' >&2
-            return 1
-        }
-    fi
-    pip_bin="${tool_dir}/bin/pip"
-    "$pip_bin" install --disable-pip-version-check "proot-distro==${PROOT_DISTRO_VERSION}" || {
-        printf '錯誤：無法從 PyPI 安裝 proot-distro。\n' >&2
-        return 1
-    }
-    export S12RYT_PROOT_DISTRO_BIN="${tool_dir}/bin/proot-distro"
-    resolve_proot_distro_bin >/dev/null || {
-        printf '錯誤：proot-distro 安裝完成但入口不存在。\n' >&2
-        return 1
-    }
+    python_bin="$(find_supported_python)" || return 1
+    install_proot_distro_package "$python_bin" || return 1
     printf 'PRoot 管理工具安裝完成。\n'
 }
 
