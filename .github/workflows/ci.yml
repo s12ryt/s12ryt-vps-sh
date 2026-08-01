@@ -53,6 +53,11 @@ jobs:
         run: |
           test -s README.md
           test -s LICENSE
+          grep -Fq '版本：`v1.0.1`' README.md
+          grep -Fqx 'bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)' README.md
+          grep -Fq 'NodeSource setup 腳本沒有獨立 checksum' README.md
+          grep -Fq '私有 `uv` 0.12.1' README.md
+          grep -Fq 'uv installer 本身沒有獨立 checksum' README.md
           grep -Fq 'kejilion.sh' README.md
           grep -Fq 'ssh_tool.eooce.com' README.md
           grep -Fq 'GNU GENERAL PUBLIC LICENSE' LICENSE
