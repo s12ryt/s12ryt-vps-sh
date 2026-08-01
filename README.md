@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml/badge.svg)](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml)
 
-版本：`v1.0.1`
+版本：`v1.0.2`
 
 一個以 Bash 撰寫的跨發行版 VPS 管理選單，提供系統資訊、一般系統升級、網路診斷、PRoot 客體、Supervisor 服務管理、Fanout、Node.js、Python 安裝與自我更新。
 
@@ -10,11 +10,21 @@
 
 ## 快速開始
 
+### 可變 main process substitution
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)
 ```
 
-這條命令會直接執行可隨時變更的 `main` 分支內容，適合快速試用，但不具版本可重現性，執行前應先審閱腳本。需要固定版本與先做語法檢查時，請使用下方安裝流程。
+這條命令會直接執行可隨時變更的 `main` 分支內容，適合快速試用，但不具版本可重現性，執行前應先審閱腳本。process substitution 是暫時來源，因此腳本會再下載一次完整腳本，通過 Bash 語法與版本驗證後才建立穩定副本及 `s`。若第二次下載或驗證失敗，當次選單仍可使用，但會警告「僅臨時執行；s 可能不存在或仍是舊版」。
+
+### 固定 `v1.0.2` 實體暫存檔
+
+```bash
+(tmp="$(mktemp)" && trap 'rm -f -- "$tmp"' EXIT && curl -fsSL --connect-timeout 5 --max-time 30 https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/s12ryt.sh -o "$tmp" && bash -n "$tmp" && bash "$tmp")
+```
+
+此命令先下載可重現的固定版本至實體暫存檔，通過 `bash -n` 後才執行，並於 subshell 結束時自動清理。需要同時下載 PRoot helper 時，請使用下方完整安裝流程。
 
 ## 安裝與啟動
 
@@ -26,10 +36,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s1
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf -- "$tmp_dir"' EXIT
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.1/s12ryt.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/s12ryt.sh \
     -o "$tmp_dir/s12ryt.sh"
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.1/install-proot.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/install-proot.sh \
     -o "$tmp_dir/install-proot.sh"
   bash -n "$tmp_dir/s12ryt.sh" "$tmp_dir/install-proot.sh"
   bash "$tmp_dir/s12ryt.sh"
