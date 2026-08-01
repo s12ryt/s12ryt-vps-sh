@@ -26,7 +26,12 @@ jobs:
 
       - name: Check Go formatting
         shell: bash
-        run: test -z "$(gofmt -l .)"
+        run: |
+          mapfile -t unformatted < <(gofmt -l .)
+          if ((${#unformatted[@]} > 0)); then
+            gofmt -d "${unformatted[@]}"
+            exit 1
+          fi
 
       - name: Run Go tests
         run: go test ./...
