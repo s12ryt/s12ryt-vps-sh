@@ -24,8 +24,8 @@
 - [x] TDD：主選單 10/11、Node.js 20/22/24 安裝與失敗保護（有效 RED run `30695510348`；Node GREEN run `30696040451`；整合 GREEN run `30696449199`）。
 - [x] TDD：uv Python 3.10-3.14、受管 pip、固定 venv 與失敗保護（有效 RED run `30695510348`；Python GREEN run `30696230288`；整合 GREEN run `30696449199`）。
 - [x] 更新 README main 快速開始、版本、風險說明與測試界線（文件 RED run `30696517584`；GREEN run `30696618928`）。
-- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30696618928`）。
-- [ ] 建立並驗證 `v1.0.1` GitHub Release，保留 `v1.0.0`。
+- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN runs `30696618928`、`30696771191`）。
+- [x] 建立並驗證 `v1.0.1` GitHub Release，保留 `v1.0.0`（tag commit `fb4865b6266ff885ff8099c657e909144ca743e9`）。
 
 ## 驗收依據
 
