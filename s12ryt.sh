@@ -4,7 +4,7 @@
 
 set -u
 
-readonly VERSION="1.0.2"
+readonly VERSION="1.0.3"
 
 read_os_name() {
     local os_release_file="${S12RYT_OS_RELEASE_FILE:-/etc/os-release}"
