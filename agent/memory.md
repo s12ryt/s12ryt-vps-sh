@@ -73,3 +73,5 @@
 - 將版本、自我更新 fixture 與 README 文件驗收切換至 v1.0.3；run `30719558942` 中 Bash 語法、ShellCheck、61 項既有行為與 10 個容器維持通過，只有正式版本仍為 1.0.2 的三項斷言按預期失敗，形成版本/文件 RED 證據。
 - 主腳本升至 1.0.3，README 更新固定 Release URL、新選單與終端互動/非互動界線；run `30719648858` 通過 Bash 語法、ShellCheck、全部 64 項 Bats、README/LICENSE 驗證與 10 個 x86_64 發行版容器煙霧測試。
 - 完成交付前品質審查：TTY 控制碼不會在非互動環境輸出或等待；選項 1-11 均在功能前後清除並於成功、取消或錯誤後等待單鍵；0 與無效選項不暫停；腳本不執行 `history -c` 或修改 `HISTFILE`。未發現新增的重大或高風險問題；真實 VPS、不同終端模擬器與 arm64 實機仍屬手動驗收界線。
+- 發行候選提交 `0b75d10e6261f27f20fbc0243d0dc1b93ee640aa` 的 GitHub Actions run `30719748209` 通過 Bash 語法、ShellCheck、全部 64 項 Bats、README/LICENSE 驗證與 10 個 x86_64 發行版容器煙霧測試。
+- 建立正式 `v1.0.3` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.3），保留既有 Releases；latest Release API 正確回傳 `v1.0.3`，tag 精確指向上述全綠提交，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.3`、`install-proot.sh` 可讀且 README 含終端互動與固定 `v1.0.3` 快速開始說明。
