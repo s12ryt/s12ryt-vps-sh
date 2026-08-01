@@ -1286,6 +1286,44 @@ install_launcher() {
     fi
 }
 
+terminal_ui_enabled() {
+    case "${S12RYT_FORCE_INTERACTIVE:-}" in
+        1)
+            return 0
+            ;;
+        0)
+            return 1
+            ;;
+    esac
+
+    [[ -t 0 && -t 1 && "${TERM:-dumb}" != "dumb" ]]
+}
+
+clear_terminal_history() {
+    terminal_ui_enabled || return 0
+    printf '\033[2J\033[3J\033[H'
+}
+
+wait_for_return_key() {
+    local key=""
+
+    terminal_ui_enabled || return 0
+    printf '按隨意鍵以返回腳本'
+    IFS= read -r -s -n 1 key || true
+    : "$key"
+    printf '\n'
+}
+
+run_menu_action() {
+    local action_status=0
+
+    clear_terminal_history
+    "$@" || action_status=$?
+    wait_for_return_key
+    clear_terminal_history
+    return "$action_status"
+}
+
 print_menu() {
     cat <<EOF
 -----
@@ -1302,10 +1340,10 @@ Copyright (C) 2026 s12ryt
 6. 自動偽造 systemd
 7. 自動安裝 Joey 的 fanout
 8. s12ryt 項目列表
------
-9. 檢查更新
+9. 安裝 Python
 10. 安裝 Node.js
-11. 安裝 Python
+-----
+11. 檢查更新
 -----
 0. 退出
 -----
@@ -1329,6 +1367,7 @@ main() {
             return 1
         fi
     fi
+    clear_terminal_history
     while true; do
         print_menu
         printf '輸入選項: '
@@ -1343,37 +1382,37 @@ main() {
                 return 0
                 ;;
             1)
-                show_system_info
+                run_menu_action show_system_info || true
                 ;;
             2)
-                update_system || true
+                run_menu_action update_system || true
                 ;;
             3)
-                show_network_information || true
+                run_menu_action show_network_information || true
                 ;;
             4)
-                prepare_proot_script || true
+                run_menu_action prepare_proot_script || true
                 ;;
             5)
-                run_proot_manager || true
+                run_menu_action run_proot_manager || true
                 ;;
             6)
-                run_supervisor_manager || true
+                run_menu_action run_supervisor_manager || true
                 ;;
             7)
-                install_fanout || true
+                run_menu_action install_fanout || true
                 ;;
             8)
-                show_projects
+                run_menu_action show_projects || true
                 ;;
             9)
-                check_for_updates || true
+                run_menu_action install_python || true
                 ;;
             10)
-                install_nodejs || true
+                run_menu_action install_nodejs || true
                 ;;
             11)
-                install_python || true
+                run_menu_action check_for_updates || true
                 ;;
             *)
                 printf '無效選項，請重新輸入。\n' >&2
