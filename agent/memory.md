@@ -53,3 +53,9 @@
 - 建立正式 `v1.0.1` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.1），保留 `v1.0.0`；latest Release API 正確回傳 `v1.0.1`，tag 指向上述全綠提交，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.1`、`install-proot.sh` 可讀且 README 含指定 main 快速開始命令。
 - 使用者以 README 的 `bash <(curl ...)` 快速開始後回報 `cp: cannot stat '/proc/.../fd/pipe'`；定位為 `script_path` 將 process substitution 的短暫檔案描述符解析成稍後已不存在的 pipe 路徑，導致穩定副本複製失敗。
 - 使用者確認 v1.0.2 同時支援原 process-substitution 快速命令與固定版本實體暫存檔一行命令；暫時來源需從 main HTTPS 重新下載、執行語法與版本驗證後原子安裝。重新下載或驗證失敗時保留既有安裝、醒目警告後只執行當次選單，並建立保留既有 Releases 的正式 `v1.0.2`。
+- v1.0.2 開發前基線 run `30697202692` 通過既有 54 項 Bats、Bash 語法、ShellCheck、文件驗證及 10 個 x86_64 發行版容器煙霧測試。
+- 新增真正透過 `/dev/fd/*` process substitution 啟動的回歸契約，以及下載、語法、版本不一致三種保留既有安裝並降級執行的案例；run `30697302635` 中既有 54 項全綠，新增 2 項精確重現 `cp: cannot stat '/proc/.../fd/pipe'`，形成有效 RED 證據。
+- 完成暫時來源辨識、main 完整腳本重新下載、timeout、語法與版本驗證、同目錄原子安裝及狀態 2 安全降級；run `30697414395` 通過 Bash 語法、ShellCheck、全部 56 項 Bats、文件驗證與 10 個發行版容器煙霧測試。
+- 將版本與文件驗收先更新至 v1.0.2；run `30697495664` 僅因正式版本仍是 1.0.1 而按預期失敗，process-substitution 回歸與其餘既有契約維持通過。
+- 版本升至 1.0.2，README 同時提供可變 main process substitution 與固定 v1.0.2 實體暫存檔命令，並說明第二次下載與失敗降級；run `30697608195` 通過 Bash 語法、ShellCheck、全部 56 項 Bats、README/LICENSE 驗證及 10 個 x86_64 發行版容器煙霧測試。
+- 完成交付前品質審查：暫時來源不再複製短暫 pipe；重新下載暫存檔位於穩定目錄並在替換前完成語法與版本驗證；失敗會清理暫存、保留既有穩定副本與 `s`，再繼續本次選單。未發現新增的重大或高風險問題；真實 VPS、arm64 實機及外部網路失敗仍屬手動驗收界線。
