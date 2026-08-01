@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -139,6 +140,10 @@ func TestStateChangingAPIRequiresSessionClientBindingAndCSRF(t *testing.T) {
 	loginResponse := login(t, server, "panel-password", "198.51.100.8")
 	cookie := loginResponse.Result().Cookies()[0]
 	csrfToken := dashboardCSRF(t, server, cookie, "198.51.100.8")
+	payload, err := json.Marshal(domain.DefaultConfig())
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
 
 	tests := []struct {
 		name       string
@@ -155,7 +160,7 @@ func TestStateChangingAPIRequiresSessionClientBindingAndCSRF(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, "http://panel.test/abcdefghijkl/api/config/validate", strings.NewReader(`{}`))
+			request := httptest.NewRequest(http.MethodPost, "http://panel.test/abcdefghijkl/api/config/validate", bytes.NewReader(payload))
 			request.RemoteAddr = test.clientIP + ":41234"
 			request.Header.Set("Content-Type", "application/json")
 			if test.csrf != "" {
@@ -167,6 +172,60 @@ func TestStateChangingAPIRequiresSessionClientBindingAndCSRF(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
 			}
 		})
+	}
+}
+
+func TestConfigValidationIsStrictAndDoesNotPersistCandidate(t *testing.T) {
+	store := &memoryConfigStore{}
+	server := newTestServerWithStore(t, store)
+	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
+
+	unknown := performConfigRequest(t, server, http.MethodPost, "/api/config/validate", cookie, csrfToken, "apply", []byte(`{"unknown":true}`))
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field status = %d, want 400", unknown.Code)
+	}
+
+	invalidConfig := domain.DefaultConfig()
+	invalidConfig.Panel.Port = 0
+	invalidPayload, _ := json.Marshal(invalidConfig)
+	invalid := performConfigRequest(t, server, http.MethodPost, "/api/config/validate", cookie, csrfToken, "apply", invalidPayload)
+	if invalid.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid config status = %d, want 422", invalid.Code)
+	}
+
+	candidate := domain.DefaultConfig()
+	candidate.Panel.Port = 35555
+	candidatePayload, _ := json.Marshal(candidate)
+	valid := performConfigRequest(t, server, http.MethodPost, "/api/config/validate", cookie, csrfToken, "apply", candidatePayload)
+	if valid.Code != http.StatusOK || !strings.Contains(valid.Body.String(), `"changed":true`) {
+		t.Fatalf("valid response = %d %s", valid.Code, valid.Body.String())
+	}
+	if len(store.saved) != 0 {
+		t.Fatal("validation persisted candidate config")
+	}
+}
+
+func TestConfigApplyRequiresConfirmationAndUpdatesCurrentConfig(t *testing.T) {
+	store := &memoryConfigStore{}
+	server := newTestServerWithStore(t, store)
+	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
+	candidate := domain.DefaultConfig()
+	candidate.Panel.Port = 35555
+	payload, _ := json.Marshal(candidate)
+
+	unconfirmed := performConfigRequest(t, server, http.MethodPost, "/api/config/apply", cookie, csrfToken, "", payload)
+	if unconfirmed.Code != http.StatusConflict || len(store.saved) != 0 {
+		t.Fatalf("unconfirmed apply = %d, saves = %d", unconfirmed.Code, len(store.saved))
+	}
+
+	applied := performConfigRequest(t, server, http.MethodPost, "/api/config/apply", cookie, csrfToken, "apply", payload)
+	if applied.Code != http.StatusOK || len(store.saved) != 1 || store.saved[0].Panel.Port != 35555 {
+		t.Fatalf("confirmed apply = %d, saves = %#v", applied.Code, store.saved)
+	}
+
+	current := performConfigRequest(t, server, http.MethodGet, "/api/config", cookie, "", "", nil)
+	if current.Code != http.StatusOK || !strings.Contains(current.Body.String(), `"port":35555`) {
+		t.Fatalf("current config = %d %s", current.Code, current.Body.String())
 	}
 }
 
@@ -197,4 +256,47 @@ func dashboardCSRF(t *testing.T, server *Server, cookie *http.Cookie, clientIP s
 		t.Fatal("dashboard CSRF meta tag not found")
 	}
 	return match[1]
+}
+
+type memoryConfigStore struct {
+	saved []domain.Config
+}
+
+func (store *memoryConfigStore) Save(config domain.Config) error {
+	store.saved = append(store.saved, config)
+	return nil
+}
+
+func newTestServerWithStore(t *testing.T, store ConfigStore) *Server {
+	t.Helper()
+	server := newTestServer(t)
+	server.store = store
+	return server
+}
+
+func authenticatedSession(t *testing.T, server *Server, clientIP string) (*http.Cookie, string) {
+	t.Helper()
+	loginResponse := login(t, server, "panel-password", clientIP)
+	if loginResponse.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want 303", loginResponse.Code)
+	}
+	cookie := loginResponse.Result().Cookies()[0]
+	return cookie, dashboardCSRF(t, server, cookie, clientIP)
+}
+
+func performConfigRequest(t *testing.T, server *Server, method string, path string, cookie *http.Cookie, csrfToken string, confirmation string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(method, "http://panel.test/abcdefghijkl"+path, bytes.NewReader(body))
+	request.RemoteAddr = "198.51.100.8:41234"
+	request.Header.Set("Content-Type", "application/json")
+	if csrfToken != "" {
+		request.Header.Set("X-CSRF-Token", csrfToken)
+	}
+	if confirmation != "" {
+		request.Header.Set("X-S12ryt-Confirm", confirmation)
+	}
+	request.AddCookie(cookie)
+	server.Handler().ServeHTTP(response, request)
+	return response
 }
