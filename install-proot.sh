@@ -3,6 +3,7 @@
 set -u
 
 readonly PROOT_DISTRO_VERSION="5.5.0"
+SELECTED_GUEST=""
 
 configure_proot_environment() {
     local root
@@ -286,6 +287,206 @@ manage_guest() {
     esac
 }
 
+is_supported_guest_name() {
+    case "$1" in
+        s12-debian13|s12-ubuntu2604|s12-alpine323) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+list_installed_guests() {
+    local installed guest proot_distro
+
+    configure_proot_environment >/dev/null || return 1
+    if ! proot_distro="$(resolve_proot_distro_bin)"; then
+        printf '錯誤：找不到 proot-distro，無法列出已安裝客體。\n' >&2
+        return 1
+    fi
+    if ! installed="$("$proot_distro" list --quiet)"; then
+        printf '錯誤：無法取得已安裝的 PRoot 客體。\n' >&2
+        return 1
+    fi
+    while IFS= read -r guest; do
+        if [[ -n "$guest" ]] && is_supported_guest_name "$guest"; then
+            printf '%s\n' "$guest"
+        fi
+    done <<< "$installed"
+}
+
+validate_installed_guest() {
+    local requested="$1"
+    local installed guest
+
+    if ! is_supported_guest_name "$requested"; then
+        printf '錯誤：客體尚未安裝或名稱不受支援: %s\n' "$requested" >&2
+        return 1
+    fi
+    installed="$(list_installed_guests)" || return 1
+    while IFS= read -r guest; do
+        if [[ "$guest" == "$requested" ]]; then
+            return 0
+        fi
+    done <<< "$installed"
+    printf '錯誤：客體尚未安裝或名稱不受支援: %s\n' "$requested" >&2
+    return 1
+}
+
+select_installed_guest() {
+    local installed guest choice index
+    local -a guests=()
+
+    installed="$(list_installed_guests)" || return 1
+    while IFS= read -r guest; do
+        [[ -n "$guest" ]] && guests+=("$guest")
+    done <<< "$installed"
+    if (( ${#guests[@]} == 0 )); then
+        printf '錯誤：尚未安裝任何支援的 PRoot 客體。\n' >&2
+        return 1
+    fi
+
+    printf '已安裝的 PRoot 客體：\n' >&2
+    for index in "${!guests[@]}"; do
+        printf '%d. %s\n' "$((index + 1))" "${guests[index]}" >&2
+    done
+    printf '輸入選項: ' >&2
+    IFS= read -r choice || choice=""
+    if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+        printf '錯誤：無效的客體選項。\n' >&2
+        return 1
+    fi
+    index=$((10#$choice - 1))
+    if (( index < 0 || index >= ${#guests[@]} )); then
+        printf '錯誤：無效的客體選項。\n' >&2
+        return 1
+    fi
+    SELECTED_GUEST="${guests[index]}"
+    printf '已選擇: %s\n' "$SELECTED_GUEST"
+}
+
+write_s12_service_script() {
+    local destination="$1"
+
+    cat > "$destination" <<'EOF'
+#!/usr/bin/env bash
+
+set -u
+
+action="${1:-}"
+service="${2:-}"
+conf_dir="${S12_SERVICE_CONF_DIR:-/etc/supervisor/conf.d}"
+
+if ! [[ "$service" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    printf '錯誤：無效的服務名稱。\n' >&2
+    exit 1
+fi
+
+case "$action" in
+    start|stop|restart|status)
+        exec supervisorctl "$action" "$service"
+        ;;
+    log)
+        exec supervisorctl tail -f "$service"
+        ;;
+    enable)
+        disabled="${conf_dir}/${service}.conf.disabled"
+        active="${conf_dir}/${service}.conf"
+        [[ -f "$disabled" ]] || {
+            printf '錯誤：找不到已停用的服務設定: %s\n' "$service" >&2
+            exit 1
+        }
+        mv -- "$disabled" "$active"
+        supervisorctl reread
+        supervisorctl update
+        ;;
+    disable)
+        active="${conf_dir}/${service}.conf"
+        disabled="${active}.disabled"
+        [[ -f "$active" ]] || {
+            printf '錯誤：找不到服務設定: %s\n' "$service" >&2
+            exit 1
+        }
+        supervisorctl stop "$service" >/dev/null 2>&1 || true
+        mv -- "$active" "$disabled"
+        supervisorctl reread
+        supervisorctl update
+        ;;
+    *)
+        printf '用法: s12-service {start|stop|restart|status|enable|disable|log} 服務名稱\n' >&2
+        exit 1
+        ;;
+esac
+EOF
+}
+
+install_supervisor_in_guest() {
+    local guest="$1"
+    local package_command proot_distro temp_script
+
+    validate_installed_guest "$guest" || return 1
+    configure_proot_environment >/dev/null || return 1
+    proot_distro="$(resolve_proot_distro_bin)" || return 1
+    case "$guest" in
+        s12-debian13|s12-ubuntu2604)
+            package_command='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y supervisor'
+            ;;
+        s12-alpine323)
+            package_command='apk add --no-cache supervisor'
+            ;;
+    esac
+    if ! "$proot_distro" login "$guest" -- sh -c "$package_command"; then
+        printf '錯誤：無法在 %s 安裝 Supervisor。\n' "$guest" >&2
+        return 1
+    fi
+
+    temp_script="$(mktemp "${S12RYT_PROOT_ROOT}/.s12-service.XXXXXX")" || return 1
+    write_s12_service_script "$temp_script" || {
+        rm -f "$temp_script"
+        return 1
+    }
+    chmod 0755 "$temp_script"
+    if ! "$proot_distro" copy "$temp_script" "${guest}:/usr/local/bin/s12-service" || \
+        ! "$proot_distro" login "$guest" -- chmod 0755 /usr/local/bin/s12-service; then
+        rm -f "$temp_script"
+        printf '錯誤：無法將 s12-service 安裝至 %s。\n' "$guest" >&2
+        return 1
+    fi
+    rm -f "$temp_script"
+    printf 'Supervisor 與 s12-service 已安裝至 %s。\n' "$guest"
+    printf '此功能不提供 systemctl，相容行為由 Supervisor 負責。\n'
+}
+
+start_supervisor_session() {
+    local guest="$1"
+    local proot_distro
+
+    validate_installed_guest "$guest" || return 1
+    configure_proot_environment >/dev/null || return 1
+    proot_distro="$(resolve_proot_distro_bin)" || return 1
+    "$proot_distro" login "$guest" --detach -- \
+        supervisord -n -c /etc/supervisor/supervisord.conf || return 1
+    printf 'Supervisor 已啟動；服務只在此 PRoot Supervisor 工作階段存活。\n'
+    printf '這不是真正 systemd，主機終止工作階段後服務不保證持續執行。\n'
+}
+
+run_supervisor_action() {
+    local guest="$1"
+    local action="$2"
+    local service="$3"
+    local proot_distro
+
+    validate_installed_guest "$guest" || return 1
+    case "$action" in
+        start|stop|restart|status|enable|disable|log) ;;
+        *)
+            printf '錯誤：不支援的 Supervisor 操作: %s\n' "$action" >&2
+            return 1
+            ;;
+    esac
+    configure_proot_environment >/dev/null || return 1
+    proot_distro="$(resolve_proot_distro_bin)" || return 1
+    "$proot_distro" login "$guest" -- s12-service "$action" "$service"
+}
+
 select_guest() {
     local choice
 
@@ -334,6 +535,49 @@ EOF
     done
 }
 
+supervisor_manager_menu() {
+    local choice service guest
+
+    select_installed_guest || return 1
+    guest="$SELECTED_GUEST"
+    while true; do
+        cat <<'EOF'
+----- Supervisor 服務管理 -----
+1. 安裝或更新 Supervisor
+2. 啟動 Supervisor 工作階段
+3. 啟動服務
+4. 停止服務
+5. 重新啟動服務
+6. 服務狀態
+7. 啟用服務
+8. 停用服務
+9. 服務日誌
+0. 返回
+EOF
+        printf '輸入選項: '
+        IFS= read -r choice || return 0
+        case "$choice" in
+            0) return 0 ;;
+            1) install_supervisor_in_guest "$guest" || true ;;
+            2) start_supervisor_session "$guest" || true ;;
+            3|4|5|6|7|8|9)
+                printf '服務名稱: '
+                IFS= read -r service || service=""
+                case "$choice" in
+                    3) run_supervisor_action "$guest" start "$service" || true ;;
+                    4) run_supervisor_action "$guest" stop "$service" || true ;;
+                    5) run_supervisor_action "$guest" restart "$service" || true ;;
+                    6) run_supervisor_action "$guest" status "$service" || true ;;
+                    7) run_supervisor_action "$guest" enable "$service" || true ;;
+                    8) run_supervisor_action "$guest" disable "$service" || true ;;
+                    9) run_supervisor_action "$guest" log "$service" || true ;;
+                esac
+                ;;
+            *) printf '無效選項，請重新輸入。\n' >&2 ;;
+        esac
+    done
+}
+
 main() {
     case "${1:-manage}" in
         setup)
@@ -342,8 +586,11 @@ main() {
         manage)
             setup_proot_tool && proot_manager_menu
             ;;
+        service)
+            setup_proot_tool && supervisor_manager_menu
+            ;;
         *)
-            printf '用法: %s [setup|manage]\n' "$0" >&2
+            printf '用法: %s [setup|manage|service]\n' "$0" >&2
             return 1
             ;;
     esac

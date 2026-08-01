@@ -523,6 +523,13 @@ run_proot_manager() {
     bash "$helper" manage
 }
 
+run_supervisor_manager() {
+    local helper
+
+    helper="$(ensure_proot_helper)" || return 1
+    bash "$helper" service
+}
+
 install_launcher() {
     local source_path stable_path launcher_path launcher_dir stable_dir temp_launcher
     local source_helper stable_helper helper_temp
@@ -638,7 +645,10 @@ main() {
             5)
                 run_proot_manager || true
                 ;;
-            6|7|8|9)
+            6)
+                run_supervisor_manager || true
+                ;;
+            7|8|9)
                 not_implemented
                 ;;
             *)
