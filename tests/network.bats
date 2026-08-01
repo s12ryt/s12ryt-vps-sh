@@ -43,7 +43,7 @@ printf '%s\n' "$*" >> "$MOCK_LOG"
 url="${!#}"
 case "$url" in
     *github.com*) printf '200'; exit 0 ;;
-    *google.com*) printf '403'; exit 0 ;;
+    *://www.google.com*) printf '403'; exit 0 ;;
     *cloudflare.com*) exit 28 ;;
     *) printf '200'; exit 0 ;;
 esac

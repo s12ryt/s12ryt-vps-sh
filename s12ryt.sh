@@ -181,6 +181,258 @@ update_system() {
     printf '系統更新完成。\n'
 }
 
+json_get() {
+    local json_file="$1"
+    local json_path="$2"
+    local value
+
+    if command -v jq >/dev/null 2>&1; then
+        value="$(jq -r "$json_path" "$json_file" 2>/dev/null)" || return 1
+        [[ "$value" != "null" ]] || return 1
+        printf '%s\n' "$value"
+        return
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$json_file" "$json_path" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as source:
+        value = json.load(source)
+except (OSError, ValueError):
+    raise SystemExit(1)
+for key in sys.argv[2].lstrip(".").split("."):
+    if not isinstance(value, dict) or key not in value:
+        raise SystemExit(1)
+    value = value[key]
+if value is None:
+    raise SystemExit(1)
+if isinstance(value, bool):
+    print(str(value).lower())
+elif isinstance(value, (dict, list)):
+    print(json.dumps(value, ensure_ascii=False))
+else:
+    print(value)
+PY
+        return
+    fi
+
+    printf '錯誤：IP 資訊需要 jq 或 python3 才能解析 JSON。\n' >&2
+    return 1
+}
+
+boolean_label() {
+    case "$1" in
+        true) printf '是\n' ;;
+        false) printf '否\n' ;;
+        *) printf '未知\n' ;;
+    esac
+}
+
+print_ip_record() {
+    local family="$1"
+    local json_file="$2"
+    local ip error asn isp country region datacenter mobile proxy vpn
+
+    error="$(json_get "$json_file" .error 2>/dev/null || true)"
+    if [[ -n "$error" ]]; then
+        printf '%s: API 錯誤：%s\n' "$family" "$error" >&2
+        return 1
+    fi
+    if ! ip="$(json_get "$json_file" .ip)"; then
+        printf '%s: 無法解析 IP 資訊。\n' "$family" >&2
+        return 1
+    fi
+
+    asn="$(json_get "$json_file" .asn.asn 2>/dev/null || true)"
+    isp="$(json_get "$json_file" .asn.org 2>/dev/null || true)"
+    [[ -n "$isp" ]] || isp="$(json_get "$json_file" .company.name 2>/dev/null || true)"
+    country="$(json_get "$json_file" .location.country 2>/dev/null || true)"
+    region="$(json_get "$json_file" .location.state 2>/dev/null || true)"
+    datacenter="$(json_get "$json_file" .is_datacenter 2>/dev/null || true)"
+    mobile="$(json_get "$json_file" .is_mobile 2>/dev/null || true)"
+    proxy="$(json_get "$json_file" .is_proxy 2>/dev/null || true)"
+    vpn="$(json_get "$json_file" .is_vpn 2>/dev/null || true)"
+
+    [[ "$asn" == AS* || -z "$asn" ]] || asn="AS${asn}"
+    printf '%s: %s\n' "$family" "$ip"
+    printf '  ASN: %s\n' "${asn:-未知}"
+    printf '  ISP: %s\n' "${isp:-未知}"
+    if [[ -n "$country" && -n "$region" ]]; then
+        printf '  國家/地區: %s / %s\n' "$country" "$region"
+    else
+        printf '  國家/地區: %s\n' "${country:-未知}"
+    fi
+    printf '  資料中心: %s\n' "$(boolean_label "$datacenter")"
+    printf '  行動網路: %s\n' "$(boolean_label "$mobile")"
+    printf '  Proxy: %s\n' "$(boolean_label "$proxy")"
+    printf '  VPN: %s\n' "$(boolean_label "$vpn")"
+    if [[ "$datacenter" == "false" && "$mobile" == "false" && \
+        "$proxy" == "false" && "$vpn" == "false" ]]; then
+        printf '  判定: 可能家寬（僅為推測）\n'
+    fi
+}
+
+classify_http_result() {
+    local curl_status="$1"
+    local http_code="$2"
+
+    if (( curl_status != 0 )); then
+        printf '逾時/失敗\n'
+        return
+    fi
+    case "$http_code" in
+        2??|3??) printf '可達\n' ;;
+        *) printf '受限\n' ;;
+    esac
+}
+
+check_connectivity() {
+    local index code curl_status
+    local -a names=(GitHub Google Cloudflare YouTube Netflix Disney+ Spotify TikTok ChatGPT Gemini Telegram)
+    local -a urls=(
+        'https://github.com/'
+        'https://www.google.com/'
+        'https://www.cloudflare.com/'
+        'https://www.youtube.com/'
+        'https://www.netflix.com/'
+        'https://www.disneyplus.com/'
+        'https://www.spotify.com/'
+        'https://www.tiktok.com/'
+        'https://chatgpt.com/'
+        'https://gemini.google.com/'
+        'https://telegram.org/'
+    )
+
+    printf '\n站點連通性：\n'
+    for index in "${!names[@]}"; do
+        code="$(curl -sS -L -o /dev/null --connect-timeout 5 --max-time 10 \
+            -w '%{http_code}' "${urls[$index]}" 2>/dev/null)"
+        curl_status=$?
+        printf '  %s: %s\n' "${names[$index]}" \
+            "$(classify_http_result "$curl_status" "${code:-000}")"
+    done
+}
+
+extract_jsonish_region() {
+    local key="$1"
+    local response_file="$2"
+
+    sed -nE 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"([A-Za-z]{2})".*/\1/p' \
+        "$response_file" | head -n 1 | tr '[:lower:]' '[:upper:]'
+}
+
+parse_stream_region() {
+    local service="$1"
+    local response_file="$2"
+    local region=""
+
+    case "$service" in
+        Netflix|Spotify)
+            region="$(extract_jsonish_region country "$response_file")"
+            ;;
+        Disney+|'YouTube Premium'|Gemini)
+            region="$(extract_jsonish_region countryCode "$response_file")"
+            ;;
+        TikTok)
+            region="$(extract_jsonish_region region "$response_file")"
+            ;;
+        ChatGPT)
+            region="$(awk -F= '$1 == "loc" && $2 ~ /^[A-Za-z][A-Za-z]$/ {
+                print toupper($2); exit
+            }' "$response_file")"
+            ;;
+    esac
+
+    [[ -n "$region" ]] || return 1
+    printf '%s\n' "$region"
+}
+
+render_stream_result() {
+    local service="$1"
+    local curl_status="$2"
+    local http_code="$3"
+    local region="$4"
+    local availability
+
+    availability="$(classify_http_result "$curl_status" "$http_code")"
+    if [[ "$availability" == "可達" && -n "$region" ]]; then
+        printf '  %s: 可達（推測地區: %s）\n' "$service" "$region"
+    elif [[ "$availability" == "可達" ]]; then
+        printf '  %s: 可達（地區未知）\n' "$service"
+    else
+        printf '  %s: %s\n' "$service" "$availability"
+    fi
+}
+
+check_streaming_services() {
+    local fallback_region="${1:-}"
+    local temp_dir index body code curl_status region
+    local -a names=(Netflix Disney+ 'YouTube Premium' Spotify TikTok ChatGPT Gemini)
+    local -a urls=(
+        'https://www.netflix.com/title/80018499'
+        'https://www.disneyplus.com/'
+        'https://www.youtube.com/premium'
+        'https://www.spotify.com/api/growth-targeting/v1/sdk/non-authenticated-user'
+        'https://www.tiktok.com/'
+        'https://chatgpt.com/cdn-cgi/trace'
+        'https://gemini.google.com/'
+    )
+
+    temp_dir="$(mktemp -d)" || return 1
+    printf '\n有限服務可用性與地區檢測：\n'
+    for index in "${!names[@]}"; do
+        body="${temp_dir}/response-${index}"
+        code="$(curl -sS -L -A 'Mozilla/5.0 (X11; Linux x86_64) s12ryt/1.0' \
+            --connect-timeout 5 --max-time 12 -o "$body" -w '%{http_code}' \
+            "${urls[$index]}" 2>/dev/null)"
+        curl_status=$?
+        region=""
+        if (( curl_status == 0 )) && [[ "$code" == 2?? || "$code" == 3?? ]]; then
+            region="$(parse_stream_region "${names[$index]}" "$body" 2>/dev/null || true)"
+            region="${region:-$fallback_region}"
+        fi
+        render_stream_result "${names[$index]}" "$curl_status" "${code:-000}" "$region"
+    done
+    rm -rf "$temp_dir"
+}
+
+show_network_information() {
+    local temp_dir family family_name response_file country_code=""
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：IP 與連通性檢測需要 curl。\n' >&2
+        return 1
+    fi
+    if ! command -v jq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+        printf '錯誤：IP 資訊需要 jq 或 python3 才能解析 JSON。\n' >&2
+        return 1
+    fi
+
+    temp_dir="$(mktemp -d)" || return 1
+    printf 'IP 資訊（來源：ipapi.is）：\n'
+    for family in 4 6; do
+        family_name="IPv${family}"
+        response_file="${temp_dir}/ipapi-${family}.json"
+        if curl "-${family}" -fsS --connect-timeout 5 --max-time 12 \
+            "${S12RYT_IPAPI_URL:-https://api.ipapi.is/}" -o "$response_file"; then
+            print_ip_record "$family_name" "$response_file" || true
+            if [[ -z "$country_code" ]]; then
+                country_code="$(json_get "$response_file" .location.country_code 2>/dev/null || true)"
+            fi
+        else
+            printf '%s: 無法取得。\n' "$family_name"
+        fi
+    done
+    rm -rf "$temp_dir"
+
+    check_connectivity
+    check_streaming_services "$country_code"
+    printf '\n提醒：家寬與地區均為推測；網站及非公開端點可能隨時變更。\n'
+    printf '結果只代表檢測當下，不保證登入後可播放。\n'
+}
+
 script_path() {
     local source_path="${BASH_SOURCE[0]}"
 
@@ -283,7 +535,10 @@ main() {
             2)
                 update_system || true
                 ;;
-            3|4|5|6|7|8|9)
+            3)
+                show_network_information || true
+                ;;
+            4|5|6|7|8|9)
                 not_implemented
                 ;;
             *)
