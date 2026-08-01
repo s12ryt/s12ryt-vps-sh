@@ -2,11 +2,19 @@
 
 [![CI](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml/badge.svg)](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml)
 
-版本：`v1.0.0`
+版本：`v1.0.1`
 
-一個以 Bash 撰寫的跨發行版 VPS 管理選單，提供系統資訊、一般系統升級、網路診斷、PRoot 客體、Supervisor 服務管理、Fanout 安裝與自我更新。
+一個以 Bash 撰寫的跨發行版 VPS 管理選單，提供系統資訊、一般系統升級、網路診斷、PRoot 客體、Supervisor 服務管理、Fanout、Node.js、Python 安裝與自我更新。
 
 > **English summary:** A Traditional Chinese, menu-driven Bash toolkit for common VPS diagnostics and maintenance. It supports multiple Linux distribution families, PRoot guests, Supervisor-based guest services, guarded Fanout installation, and release-based self-updates. See [Limitations](#限制與安全說明) before using privileged features.
+
+## 快速開始
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)
+```
+
+這條命令會直接執行可隨時變更的 `main` 分支內容，適合快速試用，但不具版本可重現性，執行前應先審閱腳本。需要固定版本與先做語法檢查時，請使用下方安裝流程。
 
 ## 安裝與啟動
 
@@ -18,10 +26,10 @@
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf -- "$tmp_dir"' EXIT
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.0/s12ryt.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.1/s12ryt.sh \
     -o "$tmp_dir/s12ryt.sh"
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.0/install-proot.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.1/install-proot.sh \
     -o "$tmp_dir/install-proot.sh"
   bash -n "$tmp_dir/s12ryt.sh" "$tmp_dir/install-proot.sh"
   bash "$tmp_dir/s12ryt.sh"
@@ -56,6 +64,8 @@ s
 | 7 | 自動安裝 Joey 的 fanout | 前置檢查通過後下載、語法驗證並直接執行官方上游安裝器 |
 | 8 | s12ryt 項目列表 | 第一版固定顯示「暫無項目」 |
 | 9 | 檢查更新 | 比對最新 GitHub Release，驗證後原子替換穩定副本 |
+| 10 | 安裝 Node.js | 從 NodeSource 選擇安裝 Node.js 20、22 或 24，並驗證 Node.js 與 npm |
+| 11 | 安裝 Python | 透過專案私有 uv 選擇安裝 Python 3.10 至 3.14、direct pip 與固定 venv |
 
 ## 支援範圍
 
@@ -64,6 +74,7 @@ s
 - 架構：`x86_64`、`arm64`/`aarch64`。
 - 權限：root 與非 root 均可啟動；需要管理權限的功能會要求 root 或可用的非互動 `sudo`。
 - 基本工具：Bash、常見 coreutils 與 `curl`。IP 與更新 JSON 解析另需 `jq` 或 Python 3。
+- Node.js：NodeSource 僅支援 `apt-get`、`dnf`、`yum` 及 x86_64/arm64；其他套件管理器會清楚拒絕。
 
 CI 會在 GitHub-hosted x86_64 runner 執行 Bats、ShellCheck、`bash -n`、mock/fixture 測試，以及各發行版容器的最小煙霧驗證。專案不宣稱已在真實 VPS 或 arm64 實機完成驗證。
 
@@ -86,6 +97,32 @@ s12-service start|stop|restart|status|enable|disable|log SERVICE
 ```
 
 服務名稱只接受英數字、點、底線與連字號。Debian/Ubuntu 使用 `/etc/supervisor/supervisord.conf`，Alpine 使用 `/etc/supervisord.conf`。
+
+## Node.js 與 Python
+
+### Node.js
+
+選項 10 提供 Node.js 20、22、24。Node.js 20 已於 2026-03-24 EOL，選擇後會顯示警告並要求第二次確認；Node.js 26 目前不是 LTS，因此不列入選單。若已存在可執行的 `node`，腳本只顯示版本並跳過，不會升級。
+
+安裝流程僅接受 NodeSource 支援的 DEB/RPM 系統與 x86_64/arm64 架構。確認後，腳本會以 HTTPS 將對應版本的 `setup_<major>.x` 下載到暫存檔，套用連線逾時並通過 `bash -n` 後，才以 root 或 `sudo -n` 執行、安裝 `nodejs`，最後同時驗證 `node` 與 `npm`。
+
+NodeSource setup 腳本沒有獨立 checksum；固定 HTTPS 來源與 Bash 語法檢查無法取代內容簽章或完整安全審計。該腳本會新增第三方套件來源，執行前應審閱下載內容。
+
+### Python
+
+選項 11 提供 Python 3.10、3.11、3.12、3.13、3.14，使用專案私有 `uv` 0.12.1 管理，不編譯或替換系統 Python。相關路徑如下：
+
+| 內容 | 路徑 |
+| --- | --- |
+| 私有 uv | `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/uv/uv` |
+| 受管 Python | `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/versions` |
+| 固定 venv | `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/venvs/3.X` |
+| root 版本命令 | `/usr/local/bin/python3.X` |
+| 非 root 版本命令 | `~/.local/bin/python3.X` |
+
+每個新版本都必須能以 `python3.X -m pip` 使用 direct pip，並建立含 pip 的固定 seeded venv。腳本不建立或覆寫無版本的 `python`、`python3`、`pip`、`pip3`。若既有版本缺 pip 或固定 venv，會先詢問是否補齊；對非 uv 管理的系統 Python，只建立固定 venv，不執行 `ensurepip` 修改系統 Python。此功能依契約仍要求 root 或可用的非互動 `sudo`。
+
+uv installer 本身沒有獨立 checksum；腳本使用固定 0.12.1 HTTPS URL、下載逾時與 `bash -n` 保護。installer 下載 uv 執行檔時會使用內嵌的 SHA-256 驗證 artifact，但 installer 腳本內容本身仍以 Astral Release 與 HTTPS 為信任根。
 
 ## 限制與安全說明
 
@@ -112,6 +149,7 @@ Fanout 功能要求 Linux、root、`/dev/net/tun`、可用 network namespace，�
 - 真實升級 runner 系統。
 - 下載或啟動 PRoot rootfs。
 - 真實安裝 Supervisor 或 Fanout。
+- 真實執行 NodeSource setup、安裝 Node.js，或下載 uv/Python。
 - 呼叫 ipapi.is 或串流服務作為決定性斷言。
 - 驗證 arm64 實機行為。
 
@@ -132,13 +170,15 @@ bats --print-output-on-failure tests
 3. 在系統更新確認提示選擇 `N`，確認沒有執行套件命令；需要時再於快照環境確認一般升級。
 4. 安裝一個 PRoot 客體，測試列表、登入；先取消重裝/移除，再於可丟棄客體確認操作。
 5. 安裝 Supervisor，啟動工作階段並以測試服務驗證 `s12-service` 七項操作。
-6. 僅在了解上游 root 腳本風險且主機具備 TUN/netns/init 條件時測試 Fanout。
-7. 發布較新測試 Release 後檢查自我更新，確認失敗情境保留舊版。
+6. 在可丟棄主機測試 Node.js 22 或 24，確認 NodeSource 來源、`node --version` 與 `npm --version`；Node.js 20 只在理解 EOL 風險時測試。
+7. 測試一個 Python minor，確認 `python3.X -m pip`、固定 venv Python 與 venv pip 可用，且系統 `python3` 未被替換。
+8. 僅在了解上游 root 腳本風險且主機具備 TUN/netns/init 條件時測試 Fanout。
+9. 發布較新測試 Release 後檢查自我更新，確認失敗情境保留舊版。
 
 ## 專案結構
 
 ```text
-s12ryt.sh                 主選單、診斷、Fanout 與自我更新
+s12ryt.sh                 主選單、診斷、執行環境安裝、Fanout 與自我更新
 install-proot.sh          PRoot 與 Supervisor 管理
 tests/                    Bats、mock、fixture 及容器煙霧腳本
 .github/workflows/ci.yml  GitHub-hosted 自動驗證
