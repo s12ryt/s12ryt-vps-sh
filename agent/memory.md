@@ -51,3 +51,5 @@
 - 完成 v1.0.1 品質審查：NodeSource 與 uv 下載皆有 timeout、暫存與 Bash 語法驗證；管理權限維持非互動；Python 只對 uv 受管版本執行 `ensurepip`，不建立或覆寫無版本 Python/pip 命令。未發現未處理的重大或高風險問題；真實 VPS、arm64 實機及真實 NodeSource/uv/Python 安裝仍屬手動驗收界線。
 - 發行候選提交 `fb4865b6266ff885ff8099c657e909144ca743e9` 的 GitHub Actions run `30696771191` 通過 Bash 語法、ShellCheck、54 項 Bats、README/LICENSE 校驗及 10 個 x86_64 發行版容器 smoke。
 - 建立正式 `v1.0.1` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.1），保留 `v1.0.0`；latest Release API 正確回傳 `v1.0.1`，tag 指向上述全綠提交，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.1`、`install-proot.sh` 可讀且 README 含指定 main 快速開始命令。
+- 使用者以 README 的 `bash <(curl ...)` 快速開始後回報 `cp: cannot stat '/proc/.../fd/pipe'`；定位為 `script_path` 將 process substitution 的短暫檔案描述符解析成稍後已不存在的 pipe 路徑，導致穩定副本複製失敗。
+- 使用者確認 v1.0.2 同時支援原 process-substitution 快速命令與固定版本實體暫存檔一行命令；暫時來源需從 main HTTPS 重新下載、執行語法與版本驗證後原子安裝。重新下載或驗證失敗時保留既有安裝、醒目警告後只執行當次選單，並建立保留既有 Releases 的正式 `v1.0.2`。
