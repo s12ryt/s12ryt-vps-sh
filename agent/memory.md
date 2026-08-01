@@ -42,3 +42,4 @@
 - 使用者確認直接 pip 僅存在於 uv 受管 Python，以 `python3.X -m pip` 使用，不建立無版本 pip 命令；每版固定建立 s12ryt 資料目錄下的 seeded venv。既有版本缺元件時先詢問是否補齊；非 uv 的系統 Python 不被修改，只能補固定 venv。
 - 使用者確認 Python 改採私有 uv 後仍強制要求 root 或非互動 sudo；Node.js 安裝成功必須同時驗證並顯示 node 與 npm 版本。
 - 完成 v1.0.1 增量需求澄清並將具體行為、錯誤語意及驗收標準寫入 `agent/question.md`；此時尚未新增測試或正式程式。
+- 建立 v1.0.1 執行環境 RED 契約：主選單更新、NodeSource 20/22/24、EOL 二次確認、平台/架構/權限與下載失敗保護，以及私有 uv 0.12.1、Python 3.10-3.14、受管 direct pip、固定 seeded venv、既有 Python 補齊及不修改系統 Python；測試全程使用 mock，不執行真實安裝。
