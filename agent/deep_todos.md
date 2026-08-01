@@ -14,7 +14,7 @@
 - [x] TDD：系統更新的實際 sudo 命令維持非互動（RED run `30682930533`；GREEN run `30683030627`）。
 - [x] 建立完整 README、canonical GPL-3.0-only 授權與 GitHub Actions。
 - [x] 執行完整回歸、ShellCheck、Bash 語法、文件校驗及 10 發行版 x86_64 容器煙霧測試（GREEN run `30683189641`）。
-- [ ] 建立 `v1.0.0` GitHub Release；公開倉庫與 `main` 推送已完成。
+- [x] 建立公開倉庫、推送 `main` 並發行 `v1.0.0` GitHub Release（最終 GREEN run `30683355393`）。
 
 ## 驗收依據
 

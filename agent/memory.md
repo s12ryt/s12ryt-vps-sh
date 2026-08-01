@@ -31,3 +31,5 @@
 - 品質審查發現系統更新雖先以 `sudo -n true` 驗證權限，實際命令仍可能互動提示密碼。run `30682930533` 僅非互動 sudo 契約按預期失敗；將命令前綴改為 `sudo -n` 並修正 mock 對 sudo 選項的轉送後，run `30683030627` 通過語法、ShellCheck 與全部 38 項 Bats。
 - 建立繁中 README 與英文簡介、canonical GPL-3.0-only 全文、來源授權標頭、文件校驗及 10 發行版 GitHub-hosted x86_64 容器煙霧矩陣。首輪 run `30683114122` 暴露 ShellCheck source 路徑與 Rocky Linux 10 映像名稱問題；修正後 run `30683189641` 通過 Bash 語法、ShellCheck、38 項 Bats、README/LICENSE 校驗，以及 Debian 13、Ubuntu 26.04、CentOS Stream 10、Rocky 10、Alma 10、Oracle Linux 10、Fedora latest、Alpine 3.23、Arch base、openSUSE Leap 16.0 全部容器煙霧測試。
 - 完成安全與品質審查：未發現 `eval`、`curl | bash`、`chmod 777` 或互動 sudo；下載的 PRoot helper、Fanout installer 與自我更新腳本均先做 Bash 語法驗證，破壞性 PRoot 操作需再次確認。驗收仍不包含真實 VPS、arm64 實機、真實系統升級、PRoot rootfs、Supervisor/Fanout 安裝或外部服務即時結果。
+- 專案紀錄提交後，GitHub Actions run `30683355393` 再次通過 Bash 語法、ShellCheck、38 項 Bats、文件校驗與全部 10 個 x86_64 發行版容器煙霧測試。
+- 建立正式 GitHub Release `v1.0.0`，指向提交 `a680dd76892fedd241b2c1585d03cc0d505af131`：`https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.0`。已驗證 latest Release 回傳該版本，且 tag 中 `s12ryt.sh` 與 `install-proot.sh` 均可讀取。
