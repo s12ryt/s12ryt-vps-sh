@@ -159,7 +159,7 @@ EOF
     grep -Fq 'old-version' "$UPDATE_TARGET"
 }
 
-@test "項目列表固定顯示暫無項目且主選單 8 與 9 各自接線" {
+@test "項目列表固定顯示暫無項目且主選單 8 與 11 各自接線" {
     run env S12RYT_SOURCE_ONLY=1 /bin/bash -c 'source "$1"; show_projects' _ \
         "${PROJECT_ROOT}/s12ryt.sh"
     [ "$status" -eq 0 ]
@@ -170,7 +170,7 @@ EOF
         install_launcher() { :; }
         show_projects() { printf "PROJECT_MARKER\n"; }
         check_for_updates() { printf "UPDATE_MARKER\n"; }
-        printf "8\n9\n0\n" | main
+        printf "8\n11\n0\n" | main
     ' _ "${PROJECT_ROOT}/s12ryt.sh"
 
     [ "$status" -eq 0 ]
