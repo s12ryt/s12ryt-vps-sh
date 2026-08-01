@@ -59,3 +59,4 @@
 - 將版本與文件驗收先更新至 v1.0.2；run `30697495664` 僅因正式版本仍是 1.0.1 而按預期失敗，process-substitution 回歸與其餘既有契約維持通過。
 - 版本升至 1.0.2，README 同時提供可變 main process substitution 與固定 v1.0.2 實體暫存檔命令，並說明第二次下載與失敗降級；run `30697608195` 通過 Bash 語法、ShellCheck、全部 56 項 Bats、README/LICENSE 驗證及 10 個 x86_64 發行版容器煙霧測試。
 - 完成交付前品質審查：暫時來源不再複製短暫 pipe；重新下載暫存檔位於穩定目錄並在替換前完成語法與版本驗證；失敗會清理暫存、保留既有穩定副本與 `s`，再繼續本次選單。未發現新增的重大或高風險問題；真實 VPS、arm64 實機及外部網路失敗仍屬手動驗收界線。
+- 建立正式 `v1.0.2` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.2），保留 `v1.0.0` 與 `v1.0.1`；tag 精確指向全綠提交 `41c5590de21d793bd4d465b172918c63350de26e`。latest Release API 正確回傳 `v1.0.2`，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.2`、`install-proot.sh` 可讀且 README 含可變 main 與固定 v1.0.2 兩種快速開始方式。
