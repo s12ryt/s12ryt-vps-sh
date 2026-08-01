@@ -43,3 +43,9 @@
 - 使用者確認 Python 改採私有 uv 後仍強制要求 root 或非互動 sudo；Node.js 安裝成功必須同時驗證並顯示 node 與 npm 版本。
 - 完成 v1.0.1 增量需求澄清並將具體行為、錯誤語意及驗收標準寫入 `agent/question.md`；此時尚未新增測試或正式程式。
 - 建立 v1.0.1 執行環境 RED 契約：主選單更新、NodeSource 20/22/24、EOL 二次確認、平台/架構/權限與下載失敗保護，以及私有 uv 0.12.1、Python 3.10-3.14、受管 direct pip、固定 seeded venv、既有 Python 補齊及不修改系統 Python；測試全程使用 mock，不執行真實安裝。
+- 首次 RED run `30695314386` 暴露受限 PATH 內找不到 `env` 的測試隔離問題；改用 `/usr/bin/env` 並為每個失敗階段補上明確錯誤語意斷言後，run `30695510348` 的既有功能、Bash 語法、ShellCheck 與 10 個發行版容器 smoke 維持通過，主選單 3 項、Node.js 7 項及 Python 8 項均因目標行為尚不存在而按預期失敗，形成可信 RED 證據。
+- 完成 NodeSource 安裝流程後，run `30695704009` 暴露 stdin 最後一行無換行時有效版本輸入會被清空；修正讀取行為後，run `30696040451` 的 Node.js 7 項契約、Bash 語法、ShellCheck 與 10 個容器 smoke 全綠，整體僅剩刻意尚未完成的 Python 與選單契約。
+- 完成私有 uv 0.12.1、Python 3.10-3.14、受管 direct pip、固定 seeded venv 與既有版本補齊流程；run `30696230288` 的 Python 8 項與 Node.js 7 項契約全綠，整體僅剩刻意尚未完成的版本與主選單接線。
+- 將版本升至 `1.0.1` 並接上主選單 10/11；run `30696377584` 的 54 項中 53 項通過，唯一失敗是自我更新測試仍硬編碼 v1.0.0。更新該版本 fixture 後，run `30696449199` 通過 Bash 語法、ShellCheck、全部 54 項 Bats、文件既有校驗與 10 個 x86_64 發行版容器 smoke。
+- 新增 README v1.0.1、精確 main 快速開始命令、NodeSource 與 uv installer 信任界線的文件驗收；run `30696517584` 僅文件驗證因舊 README 按預期失敗，54 項 Bats 與 10 個容器均全綠。完成 README 後，run `30696618928` 通過全部自動化驗證。
+- 完成 v1.0.1 品質審查：NodeSource 與 uv 下載皆有 timeout、暫存與 Bash 語法驗證；管理權限維持非互動；Python 只對 uv 受管版本執行 `ensurepip`，不建立或覆寫無版本 Python/pip 命令。未發現未處理的重大或高風險問題；真實 VPS、arm64 實機及真實 NodeSource/uv/Python 安裝仍屬手動驗收界線。
