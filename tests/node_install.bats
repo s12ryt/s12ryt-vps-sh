@@ -86,7 +86,7 @@ run_node_installer() {
     local input="$1"
     shift
 
-    run env HOME="$HOME" PATH="$PATH" MOCK_LOG="$MOCK_LOG" \
+    run /usr/bin/env HOME="$HOME" PATH="$PATH" MOCK_LOG="$MOCK_LOG" \
         NODE_READY_FILE="$NODE_READY_FILE" S12RYT_SOURCE_ONLY=1 \
         S12RYT_EFFECTIVE_UID="${S12RYT_EFFECTIVE_UID:-1000}" \
         S12RYT_MACHINE_ARCH="${S12RYT_MACHINE_ARCH:-x86_64}" \

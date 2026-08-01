@@ -152,7 +152,7 @@ run_python_installer() {
     local input="$1"
     shift
 
-    run env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+    run /usr/bin/env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
         PATH="$PATH" MOCK_LOG="$MOCK_LOG" S12RYT_UV_FIXTURE="$S12RYT_UV_FIXTURE" \
         S12RYT_SOURCE_ONLY=1 S12RYT_EFFECTIVE_UID="${S12RYT_EFFECTIVE_UID:-1000}" \
         "$@" /bin/bash -c 'source "$1"; printf "%s" "$2" | install_python' \
@@ -160,7 +160,7 @@ run_python_installer() {
 }
 
 @test "Python 版本與私有 uv 路徑符合契約" {
-    run env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" S12RYT_SOURCE_ONLY=1 \
+    run /usr/bin/env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" S12RYT_SOURCE_ONLY=1 \
         S12RYT_EFFECTIVE_UID=1000 /bin/bash -c '
         source "$1"
         for version in 3.10 3.11 3.12 3.13 3.14; do
@@ -177,7 +177,7 @@ run_python_installer() {
     [[ "$output" == *"${HOME}/.local/bin"* ]]
     [[ "$output" == *"${PYTHON_ROOT}/venvs/3.12"* ]]
 
-    run env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" S12RYT_SOURCE_ONLY=1 \
+    run /usr/bin/env HOME="$HOME" XDG_DATA_HOME="$XDG_DATA_HOME" S12RYT_SOURCE_ONLY=1 \
         S12RYT_EFFECTIVE_UID=0 /bin/bash -c 'source "$1"; python_version_bin_dir' \
         _ "${PROJECT_ROOT}/s12ryt.sh"
     [ "$status" -eq 0 ]
