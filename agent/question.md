@@ -238,3 +238,82 @@
 - 測試不得依賴真實終端控制效果；以可注入、可觀察的 mock 或測試模式驗證呼叫順序與控制碼輸出。
 - README 必須更新至 `v1.0.3`，同步選單編號、終端互動說明及固定 Release 安裝 URL。
 - 完成後執行完整 GitHub-hosted Bash 語法、ShellCheck、Bats、文件驗證及 10 發行版容器煙霧矩陣；不得使用本機 WSL、Git Bash 或本機 Bash 作為證據。
+
+## v1.1.0 多 IPv6 出站管理契約（2026-08-02）
+
+本節為使用者提供 `he-ipv6.md` 後，經多輪澄清形成的增量契約；若與前述項目列表、版本或驗收範圍衝突，以本節為準。
+
+### 版本、入口與支援範圍
+
+- 主腳本與 README 版本更新為 `1.1.0`，保留既有 Releases，建立正式 `v1.1.0` Release。
+- 主選單 8 的項目列表顯示 `1. s12ryt-多ipv6出站`；選擇後進入「s12ryt特供-多ipv6出站（web管理面板）」子選單：1 安裝、2 更新、3 設定、4 卸載、0 退出。
+- 採用 `sing-box + Go` 模組化單體：面板、API、排程與靜態資產編譯為低資源單一 Go binary；sing-box 是獨立外部執行檔，不併入本專案程式碼。
+- 此功能正式支援 Linux root、x86_64/amd64 與 arm64/aarch64，以及既有支援發行版；Debian/Ubuntu、RHEL 相容系、Fedora、Arch、openSUSE 使用 systemd，Alpine 使用 OpenRC。無 root、PRoot、未知 init 或不支援架構時拒絕。
+- 缺少 `iproute2`、curl、openssl 或所選防火牆工具時，可由發行版官方套件來源安裝；失敗必須回滾並清楚報錯。
+
+### 安裝、路徑、更新與卸載
+
+- 面板 Release 資產為 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64` 與 `SHA256SUMS`；GitHub Actions cross-build，VPS 不安裝 Go。安裝器依架構下載並驗證 SHA-256。
+- sing-box 固定 `v1.13.15`，只下載官方 x86_64/arm64 Release 資產並驗上游 checksum；不追蹤 latest。它採 GPL-3.0-or-later 且含名稱/關聯限制，作為獨立程式使用。
+- binary、設定、機密、狀態、備份及內嵌 Web 資料集中於 `/opt/s12ryt-ipv6/`；systemd/OpenRC 定義、防火牆及 logrotate 等作業系統整合檔仍放標準位置。服務名稱為 `s12ryt-ipv6`。
+- 已安裝時再選「安裝」視同更新：校驗新資產、備份 binary/設定/schema，執行 schema migration、sing-box 設定檢查與服務健康檢查；任一步失敗即原子回滾 binary、設定及服務狀態。
+- 主腳本自我更新與 IPv6 面板更新分離；面板只由項目子選單的「更新」升級。
+- 卸載先選保留資料或完整清除，再以 `[y/N]` 確認。兩者都停止服務並移除 binary、服務、專案防火牆規則、policy route 與專案新增 IPv6；完整清除另刪設定、密碼、節點、狀態與備份。
+
+### CLI 與管理端點
+
+- 首次安裝生成 24 位英數管理密碼與 `/{12 位英數}` Web 路徑，預設埠 34456；密碼以 root-only 明文保存供 CLI 再次顯示，另存雜湊供 Web 驗證。
+- 設定頁顯示 `ipv4: http://{IPv4}:{port}/{path}`、`ipv6: http://[{完整 IPv6}]:{port}/{path}`，沒有可用地址時顯示 `{未獲取到}`，並顯示管理密碼。
+- CLI 可更換埠、Web 路徑、管理面板監聽 IPv6及重設管理密碼；密碼只能由 CLI 重設，維持至少 24 位英數或重新隨機生成，並撤銷全部 session。
+- 管理埠、路徑或監聽 IPv6 變更前驗證地址、埠與候選防火牆規則；原子保存後重啟，健康成功才刪舊規則並顯示新 URL，失敗自動回滾舊 URL 與規則。
+- 管理面板依需求同時監聽 IPv4/IPv6 公網並使用 HTTP；README 與 UI 必須持續警告密碼、session 與內容可能被攔截。可設定管理來源 CIDR，預設全網公開。
+
+### Web 安全、UI 與狀態
+
+- Web 為繁體中文、響應式、無外部 CDN；HTML/CSS/JS/圖示嵌入 Go binary，採安靜、工具導向的操作介面。
+- 導覽順序為「出口模式」>「拓撲」>「協議節點」，不是強制 wizard。各設定以按鈕開啟 modal；點 backdrop 不關閉，Escape 與明確關閉/取消/完成按鈕可關閉。
+- 登入使用密碼雜湊、伺服器端 session、HttpOnly、SameSite=Strict cookie、CSRF token 與登入限速。因公開 HTTP，cookie `Secure=false` 並顯示風險。session cookie 無持久期限，伺服器端最長 24 小時；同 IP 5 次失敗鎖定 15 分鐘，服務重啟或改密碼撤銷全部 session。
+- 匯入代理的 URI、JSON、密碼與私鑰以 root-only 明文保存供 sing-box 使用；Web 預設遮罩。重新輸入管理密碼後可顯示/複製敏感值 5 分鐘。
+- 面板狀態使用含 schema 版本的 root-only JSON；寫入必須 temp + fsync + atomic rename，保留可回滾備份，不引入資料庫。
+- 變更先顯示差異；確認後生成候選設定，執行輸入、網路、防火牆、憑證及 `sing-box check` 驗證，成功才原子替換並 reload，失敗回滾。
+
+### IPv6 地址與系統網路
+
+- 面板列出各介面的既有 global IPv6 供選擇，CLI/Web 一律完整展開為八組四位十六進位；底層 JSON 與分享格式可使用標準合法表示。
+- 另可由可路由 CIDR 生成 1--256 個 IPv6，預設 16。管理員選介面並輸入 CIDR；gateway 從該介面現有 IPv6 route 自動偵測，沒有唯一可用結果時拒絕，不覆蓋整台 VPS 的 default route。
+- 新地址首次以安全隨機生成後持久保存，檢查範圍、重複、保留位址、DAD 與可達性；服務啟動前恢復。卸載只移除本專案新增地址，不修改發行版網路設定檔。
+- 管理員可重置地址池；重置前預覽所有受影響節點並二次確認，生成新池、重寫節點與分享資料，全部驗證成功後原子切換，只影響新連線。
+- 防火牆正式支援既有啟用的 ufw、firewalld 或 nftables；新增具專案標記的最小 TCP/UDP 規則，設定更新同步，卸載只刪專案規則。未知、衝突或無法判定的後端拒絕操作。
+
+### 入站協議、端點與輸出
+
+- 本機入站節點支援 VLESS、VMess、Hysteria2、TUIC、SOCKS5、AnyTLS、Shadowsocks。每節點使用獨立隨機 UUID、密碼或金鑰。
+- VLESS 支援 TCP+TLS、WebSocket+TLS、gRPC+TLS、TCP+Reality；VMess 支援 TCP、WebSocket、gRPC + TLS；Hysteria2/TUIC 使用 QUIC+TLS；AnyTLS 使用 TLS；Shadowsocks/SOCKS5 使用原生 TCP/UDP。
+- TLS 同時支援自簽與網域模式。自簽輸出安全的憑證/指紋版本及標明風險的 `insecure` 版本。網域模式支援 ACME HTTP-01（網域必填、email 可空，80 埠被占用即拒絕，續期失敗保留舊憑證）與使用者 cert/key。
+- cert/key 可選驗證後複製到 `/opt/s12ryt-ipv6/` 的 root-only TLS 目錄，或引用原路徑。引用模式每次套用與啟動前檢查可讀性、權限、配對及有效期；失敗保留舊配置並拒絕 reload。
+- 每個節點的入站可選指定 VPS IPv4、指定完整 IPv6，或 IPv4+IPv6 雙入站。雙入站各選一個地址，使用相同協議埠與認證（例如兩者皆 8001），建立兩個明確 listener 並輸出兩個端點。
+- 協議埠預設從 20000--49999 安全隨機選擇未占用且可開防火牆的 TCP/UDP 埠；重試失敗才要求手動輸入。
+- 每節點提供分享 URI、sing-box JSON、複製及 QR Code；聚合標準 Base64 訂閱只包含啟用且健康的本機入站節點，不洩露匯入的遠端出口。
+
+### 出口模式與拓撲
+
+- 模式 1「本地 IPv4」是客戶端分流：產生完整 sing-box 客戶端 JSON，IPv4 目的地由客戶端電腦直接連線，IPv6 目的地送入 VPS 節點。分享 URI/QR 只代表節點且需明示不含分流；另提供原始 JSON 下載/複製及標準 Base64 完整配置。
+- 模式 2 是 VPS 雙棧出口：IPv6 目的地使用所選 IPv6/輪換池；IPv4 目的地可選 VPS 本機 IPv4 direct 或匯入的 SOCKS/HTTP outbound，並可排序自動 fallback。HTTP 只作遠端 outbound，不新增本機 HTTP inbound。
+- 模式 3 為雙棧入站、僅 IPv6 出口；IPv4 目的地不回退，管理面板仍維持雙棧。
+- 拓撲 1「多 IPv6、多節點」由管理員建立多個獨立入站節點並為其指定出口；拓撲 2 為單 IPv6、單節點。
+- 拓撲 3 為單一固定入站節點，其新連線按可調週期（預設 1 小時）切換共用 IPv6/遠端代理池；拓撲 4 為多個固定獨立入站節點，共用同一候選池並以錯位順序輪換。既有連線不中斷。
+- direct IPv6 與匯入遠端代理可混合於輪換池。出口每 30 秒使用可設定 HTTPS URL 健康檢查，預設 `https://www.cloudflare.com/cdn-cgi/trace`、timeout 5 秒；連續 3 次失敗按管理員排序切換，首選連續 3 次成功後切回，只影響新連線。
+
+### 遠端代理匯入
+
+- 接受七種代理的標準分享 URI、單一 sing-box outbound JSON，以及最多 1 MiB/1000 節點的 Base64 多 URI 訂閱內容；逐筆驗證及去重，不主動追蹤遠端訂閱 URL。
+- 模式 2 額外接受 SOCKS/HTTP(S) 代理 URI 或 sing-box outbound JSON作 IPv4 出口；HTTP 不作本機 inbound。
+- 匯入的 direct IPv6、七種遠端代理及 SOCKS/HTTP 可依模式加入候選/fallback；儲存與套用前驗證 schema、必要欄位、地址、TLS 與敏感資料。
+
+### 日誌、資源與驗收
+
+- 面板與 sing-box 使用資訊級日誌，不記錄密碼、token、私鑰或完整 URI；systemd journal 或 OpenRC logrotate 最多保留 7 天或 100 MiB，先到者為準。
+- GitHub-hosted CI 以 64 個 IPv6、28 個節點、無活躍流量、穩定 60 秒的基準量測面板與 sing-box 合計 idle RSS，必須不超過 100 MiB。
+- 嚴格 TDD：Go domain/config/auth/HTTP 使用 unit test 與 `httptest`；Bash 安裝/更新/系統操作全部 mock；不得在 CI 真改 host IPv6、route、防火牆、服務或真實 VPS。
+- Playwright 在 GitHub-hosted runner 驗證桌面與手機登入、三頁導覽、modal backdrop 不關閉、Escape/按鈕關閉、CSRF/錯誤狀態與響應式無重疊；前端不得使用外部 CDN。
+- GitHub Actions 執行 Go test、go vet、格式檢查、Bats、ShellCheck、Bash 語法、Playwright、x86_64/arm64 cross-build、checksum、資源基準與既有 10 發行版 x86_64 容器 smoke。arm64 只宣稱 cross-build，不宣稱真實 arm64 VPS 驗證。
