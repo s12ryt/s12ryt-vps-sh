@@ -870,6 +870,17 @@ script_path() {
     printf '%s/%s\n' "$(cd "$(dirname "$source_path")" && pwd)" "$(basename "$source_path")"
 }
 
+script_source_is_temporary() {
+    local source_path="${BASH_SOURCE[0]:-}"
+
+    case "$source_path" in
+        /dev/fd/*|/proc/*/fd/*|/dev/stdin)
+            return 0
+            ;;
+    esac
+    [[ -z "$source_path" || ! -f "$source_path" ]]
+}
+
 proot_helper_path() {
     if [[ -n "${S12RYT_PROOT_HELPER_PATH:-}" ]]; then
         printf '%s\n' "$S12RYT_PROOT_HELPER_PATH"
@@ -1170,11 +1181,54 @@ show_projects() {
     printf '暫無項目\n'
 }
 
+install_downloaded_bootstrap() {
+    local stable_path="$1"
+    local stable_dir temp_file bootstrap_url downloaded_version
+
+    stable_dir="$(dirname "$stable_path")"
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：重新下載 s12ryt 完整腳本需要 curl。\n' >&2
+        return 1
+    fi
+    temp_file="$(mktemp "${stable_dir}/.s12ryt-bootstrap.XXXXXX")" || {
+        printf '錯誤：無法建立 s12ryt 重新下載暫存檔。\n' >&2
+        return 1
+    }
+    bootstrap_url="${S12RYT_BOOTSTRAP_URL:-https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh}"
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 "$bootstrap_url" -o "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法重新下載 s12ryt 完整腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：重新下載的 s12ryt 腳本語法驗證失敗。\n' >&2
+        return 1
+    fi
+    downloaded_version="$(extract_script_version "$temp_file")"
+    if [[ "$downloaded_version" != "$VERSION" ]]; then
+        rm -f "$temp_file"
+        printf '錯誤：重新下載的 s12ryt 腳本版本與目前執行版本不一致。\n' >&2
+        return 1
+    fi
+    if ! chmod 0755 "$temp_file" || ! mv -f "$temp_file" "$stable_path"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法原子安裝重新下載的 s12ryt 腳本。\n' >&2
+        return 1
+    fi
+}
+
 install_launcher() {
     local source_path stable_path launcher_path launcher_dir stable_dir temp_launcher
     local source_helper stable_helper helper_temp
+    local temporary_source=0
 
-    source_path="$(script_path)"
+    if script_source_is_temporary; then
+        temporary_source=1
+        source_path=""
+    else
+        source_path="$(script_path)"
+    fi
     if (( EUID == 0 )); then
         stable_path="/usr/local/lib/s12ryt/s12ryt.sh"
         launcher_path="/usr/local/bin/s"
@@ -1190,7 +1244,12 @@ install_launcher() {
         return 1
     fi
 
-    if [[ "$source_path" != "$stable_path" ]]; then
+    if (( temporary_source == 1 )); then
+        if ! install_downloaded_bootstrap "$stable_path"; then
+            return 2
+        fi
+        source_path="$stable_path"
+    elif [[ "$source_path" != "$stable_path" ]]; then
         if ! cp "$source_path" "$stable_path" || ! chmod 0755 "$stable_path"; then
             printf '錯誤：無法建立 s12ryt 穩定副本。\n' >&2
             return 1
@@ -1258,9 +1317,18 @@ not_implemented() {
 }
 
 main() {
-    local choice
+    local choice install_status
 
-    install_launcher || return 1
+    if install_launcher; then
+        :
+    else
+        install_status=$?
+        if (( install_status == 2 )); then
+            printf '警告：僅臨時執行；s 可能不存在或仍是舊版。\n' >&2
+        else
+            return 1
+        fi
+    fi
     while true; do
         print_menu
         printf '輸入選項: '
