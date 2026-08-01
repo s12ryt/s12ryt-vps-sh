@@ -27,6 +27,15 @@
 - [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN runs `30696618928`、`30696771191`）。
 - [x] 建立並驗證 `v1.0.1` GitHub Release，保留 `v1.0.0`（tag commit `fb4865b6266ff885ff8099c657e909144ca743e9`）。
 
+## 目前任務：v1.0.2 process substitution 修復
+
+- [x] 重現並定位短暫 `/proc/.../fd/pipe` 被當成穩定來源複製的原因。
+- [x] 澄清兩種快速開始、暫時來源失敗降級與 `v1.0.2` 發行契約。
+- [ ] TDD：process substitution 重新下載、驗證、原子安裝與失敗降級。
+- [ ] 更新版本、README 兩種快速開始與文件驗證。
+- [ ] 執行完整 GitHub Actions 回歸與品質審查。
+- [ ] 建立並驗證 `v1.0.2` GitHub Release，保留既有 Releases。
+
 ## 驗收依據
 
 - 唯一需求契約：`agent/question.md`。
