@@ -47,3 +47,82 @@ jobs:
         env:
           TERM: xterm
         run: bats --print-output-on-failure tests
+
+      - name: Validate repository documents
+        shell: bash
+        run: |
+          test -s README.md
+          test -s LICENSE
+          grep -Fq 'kejilion.sh' README.md
+          grep -Fq 'ssh_tool.eooce.com' README.md
+          grep -Fq 'GNU GENERAL PUBLIC LICENSE' LICENSE
+          test "$(git rev-parse HEAD:LICENSE)" = 'f6cdd22a6c1fbc887e08a215cb4beb3c47048041'
+
+  distribution-smoke:
+    name: ${{ matrix.name }} smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: Debian 13
+            image: debian:13-slim
+            bootstrap: "true"
+            manager: apt-get
+          - name: Ubuntu 26.04
+            image: ubuntu:26.04
+            bootstrap: "true"
+            manager: apt-get
+          - name: CentOS Stream 10
+            image: quay.io/centos/centos:stream10
+            bootstrap: "true"
+            manager: dnf
+          - name: Rocky Linux 10
+            image: rockylinux:10
+            bootstrap: "true"
+            manager: dnf
+          - name: AlmaLinux 10
+            image: almalinux:10
+            bootstrap: "true"
+            manager: dnf
+          - name: Oracle Linux 10
+            image: oraclelinux:10
+            bootstrap: "true"
+            manager: dnf
+          - name: Fedora
+            image: fedora:latest
+            bootstrap: "true"
+            manager: dnf
+          - name: Alpine 3.23
+            image: alpine:3.23
+            bootstrap: "apk add --no-cache bash"
+            manager: apk
+          - name: Arch Linux
+            image: archlinux:base
+            bootstrap: "true"
+            manager: pacman
+          - name: openSUSE Leap 16.0
+            image: opensuse/leap:16.0
+            bootstrap: "true"
+            manager: zypper
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run container smoke test
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          BOOTSTRAP: ${{ matrix.bootstrap }}
+          EXPECTED_MANAGER: ${{ matrix.manager }}
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            -e BOOTSTRAP \
+            -e EXPECTED_MANAGER \
+            "$IMAGE" sh -ec '
+              $BOOTSTRAP
+              exec bash /workspace/tests/container-smoke.sh "$EXPECTED_MANAGER"
+            '
