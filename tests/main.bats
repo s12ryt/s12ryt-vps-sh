@@ -11,7 +11,7 @@ setup() {
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"s12ryt 的 VPS 腳本"* ]]
-    [[ "$output" == *"版本: v1.0.0"* ]]
+    [[ "$output" == *"版本: v1.0.1"* ]]
     [[ "$output" == *"Copyright (C) 2026 s12ryt"* ]]
     [[ "$output" == *"GPL-3.0-only"* ]]
     [[ "$output" == *"不提供任何擔保"* ]]
@@ -24,6 +24,8 @@ setup() {
     [[ "$output" == *"7. 自動安裝 Joey 的 fanout"* ]]
     [[ "$output" == *"8. s12ryt 項目列表"* ]]
     [[ "$output" == *"9. 檢查更新"* ]]
+    [[ "$output" == *"10. 安裝 Node.js"* ]]
+    [[ "$output" == *"11. 安裝 Python"* ]]
     [[ "$output" == *"0. 退出"* ]]
 }
 
@@ -44,7 +46,21 @@ setup() {
 
     run bash -c 'printf "0\n" | "$HOME/.local/bin/s"'
     [ "$status" -eq 0 ]
-    [[ "$output" == *"版本: v1.0.0"* ]]
+    [[ "$output" == *"版本: v1.0.1"* ]]
+}
+
+@test "選項 10 與 11 呼叫執行環境安裝流程" {
+    run env HOME="$HOME" S12RYT_SOURCE_ONLY=1 /bin/bash -c '
+        source "$1"
+        install_launcher() { :; }
+        install_nodejs() { printf "node-installer-called\n"; }
+        install_python() { printf "python-installer-called\n"; }
+        printf "10\n11\n0\n" | main
+    ' _ "${PROJECT_ROOT}/s12ryt.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"node-installer-called"* ]]
+    [[ "$output" == *"python-installer-called"* ]]
 }
 
 @test "安裝 s 命令時強制覆寫既有檔案且只提示 PATH" {
