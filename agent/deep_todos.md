@@ -31,9 +31,9 @@
 
 - [x] 重現並定位短暫 `/proc/.../fd/pipe` 被當成穩定來源複製的原因。
 - [x] 澄清兩種快速開始、暫時來源失敗降級與 `v1.0.2` 發行契約。
-- [ ] TDD：process substitution 重新下載、驗證、原子安裝與失敗降級。
-- [ ] 更新版本、README 兩種快速開始與文件驗證。
-- [ ] 執行完整 GitHub Actions 回歸與品質審查。
+- [x] TDD：process substitution 重新下載、驗證、原子安裝與失敗降級（RED run `30697302635`；GREEN run `30697414395`）。
+- [x] 更新版本、README 兩種快速開始與文件驗證（RED run `30697495664`；GREEN run `30697608195`）。
+- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30697608195`）。
 - [ ] 建立並驗證 `v1.0.2` GitHub Release，保留既有 Releases。
 
 ## 驗收依據
