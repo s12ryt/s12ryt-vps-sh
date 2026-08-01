@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-only
 
 set -u
 
@@ -805,6 +806,8 @@ print_menu() {
 -----
 s12ryt 的 VPS 腳本
 版本: v${VERSION}
+Copyright (C) 2026 s12ryt
+授權: GPL-3.0-only；本程式不提供任何擔保，詳見 LICENSE。
 -----
 1. 系統資訊
 2. 更新系統
