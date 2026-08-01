@@ -46,7 +46,7 @@ exit 0
 EOF
     chmod +x "${MOCK_BIN}/python3" "${MOCK_BIN}/python3.11"
 
-    run env PATH="$MOCK_BIN:/usr/bin:/bin" S12RYT_PROOT_SOURCE_ONLY=1 \
+    run env PATH="$MOCK_BIN" S12RYT_PROOT_SOURCE_ONLY=1 \
         /bin/bash -c 'source "$1"; find_supported_python' \
         _ "${PROJECT_ROOT}/install-proot.sh"
 
