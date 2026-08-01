@@ -43,8 +43,8 @@
 - [x] TDD：首次與功能前後清除終端、單鍵返回及非互動略過（RED runs `30719122413`、`30719197832`；GREEN run `30719456769`）。
 - [x] TDD：9 Python、10 Node.js、11 檢查更新的新排版與功能接線（RED runs `30719122413`、`30719197832`；GREEN run `30719456769`）。
 - [x] 更新版本、README、文件驗證與固定 Release URL（RED run `30719558942`；GREEN run `30719648858`）。
-- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30719648858`）。
-- [ ] 建立並驗證 `v1.0.3` GitHub Release，保留既有 Releases。
+- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN runs `30719648858`、`30719748209`）。
+- [x] 建立並驗證 `v1.0.3` GitHub Release，保留既有 Releases（tag commit `0b75d10e6261f27f20fbc0243d0dc1b93ee640aa`）。
 
 ## 驗收依據
 
