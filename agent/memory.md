@@ -33,3 +33,12 @@
 - 完成安全與品質審查：未發現 `eval`、`curl | bash`、`chmod 777` 或互動 sudo；下載的 PRoot helper、Fanout installer 與自我更新腳本均先做 Bash 語法驗證，破壞性 PRoot 操作需再次確認。驗收仍不包含真實 VPS、arm64 實機、真實系統升級、PRoot rootfs、Supervisor/Fanout 安裝或外部服務即時結果。
 - 專案紀錄提交後，GitHub Actions run `30683355393` 再次通過 Bash 語法、ShellCheck、38 項 Bats、文件校驗與全部 10 個 x86_64 發行版容器煙霧測試。
 - 建立正式 GitHub Release `v1.0.0`，指向提交 `a680dd76892fedd241b2c1585d03cc0d505af131`：`https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.0`。已驗證 latest Release 回傳該版本，且 tag 中 `s12ryt.sh` 與 `install-proot.sh` 均可讀取。
+- 使用者提出 v1.0.1 增量需求：README 增加 raw.githubusercontent.com 的 `main` 一行快速開始，主選單新增 10 安裝 Node.js、11 安裝 Python，並建立保留 v1.0.0 的正式 v1.0.1 Release。
+- 經需求澄清，快速開始只列 `bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)` 且明示直接執行可變 main；既有固定 Release 安全安裝說明保留。
+- 查核 Node.js 官方發行表：2026-08-01 時 Node.js 24 為最新 LTS、22 仍為 LTS、20 已於 2026-03-24 EOL、26 仍為 Current。使用者確認選項 10 提供 20/22/24，20 顯示 EOL 警告並二次確認，不提供 26。
+- 查核 NodeSource 官方文件與 setup 腳本：僅提供 DEB 與 RHEL/RPM repository，支援 amd64/arm64（RPM 為 x86_64/aarch64）；使用者確認 apk/pacman/zypper 清楚拒絕。官方 setup 腳本將下載到暫存檔、通過 `bash -n` 後執行，不使用 pipe-to-bash；上游未提供 setup 腳本 checksum。
+- 使用者追加 Python 需提供 3.10、3.11、3.12、3.13、3.14。查核各發行版官方套件可用 minor 不一致後，使用者改選 Astral uv 跨發行版管理版本，不改系統 `python3` 預設。
+- 查核 uv 官方文件與 0.12.1 immutable Release：`uv python install 3.X` 預設提供版本化命令；`UV_PYTHON_BIN_DIR` 與 `UV_PYTHON_INSTALL_DIR` 可隔離路徑；`uv venv --python 3.X --seed` 會建立含 pip 的環境。0.12.1 installer 內含各平台 uv 二進位 SHA-256 並驗證下載，但 installer 本身仍只以固定版本 HTTPS URL 與語法檢查保護。
+- 使用者確認直接 pip 僅存在於 uv 受管 Python，以 `python3.X -m pip` 使用，不建立無版本 pip 命令；每版固定建立 s12ryt 資料目錄下的 seeded venv。既有版本缺元件時先詢問是否補齊；非 uv 的系統 Python 不被修改，只能補固定 venv。
+- 使用者確認 Python 改採私有 uv 後仍強制要求 root 或非互動 sudo；Node.js 安裝成功必須同時驗證並顯示 node 與 npm 版本。
+- 完成 v1.0.1 增量需求澄清並將具體行為、錯誤語意及驗收標準寫入 `agent/question.md`；此時尚未新增測試或正式程式。
