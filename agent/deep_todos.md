@@ -36,6 +36,16 @@
 - [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30697608195`）。
 - [x] 建立並驗證 `v1.0.2` GitHub Release，保留既有 Releases（tag commit `41c5590de21d793bd4d465b172918c63350de26e`）。
 
+## 目前任務：v1.0.3 終端互動與選單排版
+
+- [x] 讀取新版 `需求.md` 並定位主選單迴圈、功能接線與既有測試。
+- [x] 澄清清除範圍、單鍵返回、TTY 邊界、子選單範圍、選單編號與發行版本。
+- [ ] TDD：首次與功能前後清除終端、單鍵返回及非互動略過。
+- [ ] TDD：9 Python、10 Node.js、11 檢查更新的新排版與功能接線。
+- [ ] 更新版本、README、文件驗證與固定 Release URL。
+- [ ] 執行完整 GitHub Actions 回歸與品質審查。
+- [ ] 建立並驗證 `v1.0.3` GitHub Release，保留既有 Releases。
+
 ## 驗收依據
 
 - 唯一需求契約：`agent/question.md`。
