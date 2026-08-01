@@ -1,0 +1,19 @@
+{
+  "ip": "2001:db8::10",
+  "is_mobile": false,
+  "is_datacenter": true,
+  "is_proxy": true,
+  "is_vpn": false,
+  "company": {
+    "name": "Example Cloud"
+  },
+  "asn": {
+    "asn": 64501,
+    "org": "Example Hosting ASN"
+  },
+  "location": {
+    "country": "United States",
+    "country_code": "US",
+    "state": "Virginia"
+  }
+}
