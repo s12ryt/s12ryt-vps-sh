@@ -49,3 +49,5 @@
 - 將版本升至 `1.0.1` 並接上主選單 10/11；run `30696377584` 的 54 項中 53 項通過，唯一失敗是自我更新測試仍硬編碼 v1.0.0。更新該版本 fixture 後，run `30696449199` 通過 Bash 語法、ShellCheck、全部 54 項 Bats、文件既有校驗與 10 個 x86_64 發行版容器 smoke。
 - 新增 README v1.0.1、精確 main 快速開始命令、NodeSource 與 uv installer 信任界線的文件驗收；run `30696517584` 僅文件驗證因舊 README 按預期失敗，54 項 Bats 與 10 個容器均全綠。完成 README 後，run `30696618928` 通過全部自動化驗證。
 - 完成 v1.0.1 品質審查：NodeSource 與 uv 下載皆有 timeout、暫存與 Bash 語法驗證；管理權限維持非互動；Python 只對 uv 受管版本執行 `ensurepip`，不建立或覆寫無版本 Python/pip 命令。未發現未處理的重大或高風險問題；真實 VPS、arm64 實機及真實 NodeSource/uv/Python 安裝仍屬手動驗收界線。
+- 發行候選提交 `fb4865b6266ff885ff8099c657e909144ca743e9` 的 GitHub Actions run `30696771191` 通過 Bash 語法、ShellCheck、54 項 Bats、README/LICENSE 校驗及 10 個 x86_64 發行版容器 smoke。
+- 建立正式 `v1.0.1` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.1），保留 `v1.0.0`；latest Release API 正確回傳 `v1.0.1`，tag 指向上述全綠提交，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.1`、`install-proot.sh` 可讀且 README 含指定 main 快速開始命令。
