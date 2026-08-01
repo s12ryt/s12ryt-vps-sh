@@ -64,12 +64,12 @@ setup() {
 
         [ "$status" -eq 0 ]
         case "$manager" in
-            apt-get) expected=$'sudo -n true\nsudo apt-get update\napt-get update\nsudo apt-get upgrade -y\napt-get upgrade -y' ;;
-            dnf) expected=$'sudo -n true\nsudo dnf upgrade --refresh -y\ndnf upgrade --refresh -y' ;;
-            yum) expected=$'sudo -n true\nsudo yum makecache\nyum makecache\nsudo yum update -y\nyum update -y' ;;
-            apk) expected=$'sudo -n true\nsudo apk update\napk update\nsudo apk upgrade\napk upgrade' ;;
-            pacman) expected=$'sudo -n true\nsudo pacman -Syu --noconfirm\npacman -Syu --noconfirm' ;;
-            zypper) expected=$'sudo -n true\nsudo zypper --non-interactive refresh\nzypper --non-interactive refresh\nsudo zypper --non-interactive update\nzypper --non-interactive update' ;;
+            apt-get) expected=$'sudo -n true\nsudo -n apt-get update\napt-get update\nsudo -n apt-get upgrade -y\napt-get upgrade -y' ;;
+            dnf) expected=$'sudo -n true\nsudo -n dnf upgrade --refresh -y\ndnf upgrade --refresh -y' ;;
+            yum) expected=$'sudo -n true\nsudo -n yum makecache\nyum makecache\nsudo -n yum update -y\nyum update -y' ;;
+            apk) expected=$'sudo -n true\nsudo -n apk update\napk update\nsudo -n apk upgrade\napk upgrade' ;;
+            pacman) expected=$'sudo -n true\nsudo -n pacman -Syu --noconfirm\npacman -Syu --noconfirm' ;;
+            zypper) expected=$'sudo -n true\nsudo -n zypper --non-interactive refresh\nzypper --non-interactive refresh\nsudo -n zypper --non-interactive update\nzypper --non-interactive update' ;;
         esac
         [ "$(cat "$MOCK_LOG")" = "$expected" ]
         [[ "$(cat "$MOCK_LOG")" != *"full-upgrade"* ]]
