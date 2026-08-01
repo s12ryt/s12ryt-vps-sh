@@ -21,10 +21,10 @@
 - [x] 澄清 README 快速開始、NodeSource 版本/平台/執行方式、Python 元件、權限與發行版本。
 - [x] 查核 Node.js 官方生命週期與 NodeSource DEB/RPM 安裝範圍；確認 24 為最新 LTS、26 仍為 Current、20 已 EOL。
 - [x] 查核 uv 官方 Python 管理、installer、SHA-256、版本化命令、pip 與 venv 行為；凍結 Python 3.10-3.14 契約。
-- [ ] TDD：主選單 10/11、Node.js 20/22/24 安裝與失敗保護（RED 契約已建立，待 GitHub Actions 證據）。
-- [ ] TDD：uv Python 3.10-3.14、受管 pip、固定 venv 與失敗保護（RED 契約已建立，待 GitHub Actions 證據）。
-- [ ] 更新 README main 快速開始、版本、風險說明與測試界線。
-- [ ] 執行完整 GitHub Actions 回歸與品質審查。
+- [x] TDD：主選單 10/11、Node.js 20/22/24 安裝與失敗保護（有效 RED run `30695510348`；Node GREEN run `30696040451`；整合 GREEN run `30696449199`）。
+- [x] TDD：uv Python 3.10-3.14、受管 pip、固定 venv 與失敗保護（有效 RED run `30695510348`；Python GREEN run `30696230288`；整合 GREEN run `30696449199`）。
+- [x] 更新 README main 快速開始、版本、風險說明與測試界線（文件 RED run `30696517584`；GREEN run `30696618928`）。
+- [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30696618928`）。
 - [ ] 建立並驗證 `v1.0.1` GitHub Release，保留 `v1.0.0`。
 
 ## 驗收依據
