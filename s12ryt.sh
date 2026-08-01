@@ -530,6 +530,219 @@ run_supervisor_manager() {
     bash "$helper" service
 }
 
+detect_fanout_init() {
+    if [[ -n "${S12RYT_INIT_SYSTEM+x}" ]]; then
+        case "$S12RYT_INIT_SYSTEM" in
+            systemd|openrc)
+                printf '%s\n' "$S12RYT_INIT_SYSTEM"
+                return 0
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    fi
+
+    if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+        printf 'systemd\n'
+        return 0
+    fi
+    if command -v rc-service >/dev/null 2>&1; then
+        printf 'openrc\n'
+        return 0
+    fi
+    return 1
+}
+
+check_fanout_prerequisites() {
+    local kernel_name="${S12RYT_KERNEL_NAME:-$(uname -s)}"
+    local effective_uid="${S12RYT_EFFECTIVE_UID:-$EUID}"
+    local tun_path="${S12RYT_TUN_PATH:-/dev/net/tun}"
+
+    if [[ "$kernel_name" != "Linux" ]]; then
+        printf '錯誤：Fanout 只支援 Linux。\n' >&2
+        return 1
+    fi
+    if [[ ! "$effective_uid" =~ ^[0-9]+$ || "$effective_uid" != "0" ]]; then
+        printf '錯誤：Fanout 安裝需要 root 權限。\n' >&2
+        return 1
+    fi
+    if [[ ! -e "$tun_path" ]]; then
+        printf '錯誤：Fanout 需要可用的 /dev/net/tun。\n' >&2
+        return 1
+    fi
+    if ! command -v unshare >/dev/null 2>&1 || ! unshare -n true >/dev/null 2>&1; then
+        printf '錯誤：Fanout 需要可用的 network namespace。\n' >&2
+        return 1
+    fi
+    if ! detect_fanout_init >/dev/null; then
+        printf '錯誤：Fanout 需要 systemd 或 OpenRC。\n' >&2
+        return 1
+    fi
+}
+
+install_fanout() {
+    local installer_url temp_file
+
+    check_fanout_prerequisites || return 1
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：下載 Fanout 安裝腳本需要 curl。\n' >&2
+        return 1
+    fi
+    temp_file="$(mktemp "${TMPDIR:-/tmp}/s12ryt-fanout.XXXXXX")" || {
+        printf '錯誤：無法建立 Fanout 暫存檔。\n' >&2
+        return 1
+    }
+    installer_url="${S12RYT_FANOUT_URL:-https://raw.githubusercontent.com/byJoey/fanout/main/install.sh}"
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 "$installer_url" -o "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法下載 Fanout 安裝腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：Fanout 安裝腳本語法驗證失敗。\n' >&2
+        return 1
+    fi
+    if ! bash "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：Fanout 上游安裝腳本執行失敗。\n' >&2
+        return 1
+    fi
+    rm -f "$temp_file"
+    printf 'Fanout 上游安裝腳本執行完成。\n'
+}
+
+validate_version() {
+    [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+}
+
+version_is_newer() {
+    local current="$1"
+    local candidate="$2"
+    local index
+    local -a current_parts candidate_parts
+
+    validate_version "$current" || return 2
+    validate_version "$candidate" || return 2
+    IFS=. read -r -a current_parts <<< "$current"
+    IFS=. read -r -a candidate_parts <<< "$candidate"
+    for index in 0 1 2; do
+        if (( ${#candidate_parts[index]} > ${#current_parts[index]} )); then
+            return 0
+        fi
+        if (( ${#candidate_parts[index]} < ${#current_parts[index]} )); then
+            return 1
+        fi
+        if [[ "${candidate_parts[index]}" > "${current_parts[index]}" ]]; then
+            return 0
+        fi
+        if [[ "${candidate_parts[index]}" < "${current_parts[index]}" ]]; then
+            return 1
+        fi
+    done
+    return 1
+}
+
+update_target_path() {
+    if [[ -n "${S12RYT_UPDATE_TARGET:-}" ]]; then
+        printf '%s\n' "$S12RYT_UPDATE_TARGET"
+    elif (( EUID == 0 )); then
+        printf '/usr/local/lib/s12ryt/s12ryt.sh\n'
+    else
+        printf '%s/.local/share/s12ryt/s12ryt.sh\n' "$HOME"
+    fi
+}
+
+extract_script_version() {
+    sed -nE 's/^[[:space:]]*(readonly[[:space:]]+)?VERSION="([0-9]+\.[0-9]+\.[0-9]+)"[[:space:]]*$/\2/p' \
+        "$1" | head -n 1
+}
+
+check_for_updates() {
+    local target target_dir temp_dir api_file downloaded release_tag release_version downloaded_version
+    local api_url download_url
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：檢查更新需要 curl。\n' >&2
+        return 1
+    fi
+    if ! command -v jq >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+        printf '錯誤：檢查更新需要 jq 或 python3。\n' >&2
+        return 1
+    fi
+
+    target="$(update_target_path)"
+    target_dir="$(dirname "$target")"
+    if [[ ! -d "$target_dir" || ! -w "$target_dir" ]]; then
+        printf '錯誤：穩定副本目錄不存在或不可寫入。\n' >&2
+        return 1
+    fi
+    temp_dir="$(mktemp -d "${target_dir}/.s12ryt-update.XXXXXX")" || {
+        printf '錯誤：無法建立更新暫存檔。\n' >&2
+        return 1
+    }
+    api_file="${temp_dir}/release.json"
+    downloaded="${temp_dir}/s12ryt.sh"
+    api_url="${S12RYT_RELEASE_API_URL:-https://api.github.com/repos/s12ryt/s12ryt-vps-sh/releases/latest}"
+    if ! curl -fsSL --connect-timeout 5 --max-time 15 "$api_url" -o "$api_file"; then
+        rm -rf "$temp_dir"
+        printf '錯誤：無法查詢最新 Release。\n' >&2
+        return 1
+    fi
+    release_tag="$(json_get "$api_file" .tag_name 2>/dev/null || true)"
+    if [[ "$release_tag" != v* ]]; then
+        rm -rf "$temp_dir"
+        printf '錯誤：Release tag 格式無效。\n' >&2
+        return 1
+    fi
+    release_version="${release_tag#v}"
+    if ! validate_version "$release_version"; then
+        rm -rf "$temp_dir"
+        printf '錯誤：Release tag 格式無效。\n' >&2
+        return 1
+    fi
+    if ! version_is_newer "$VERSION" "$release_version"; then
+        rm -rf "$temp_dir"
+        printf '目前已是最新版 v%s。\n' "$VERSION"
+        return 0
+    fi
+
+    download_url="${S12RYT_UPDATE_BASE_URL:-https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh}/${release_tag}/s12ryt.sh"
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 "$download_url" -o "$downloaded"; then
+        rm -rf "$temp_dir"
+        printf '錯誤：無法下載新版腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$downloaded"; then
+        rm -rf "$temp_dir"
+        printf '錯誤：新版腳本語法驗證失敗。\n' >&2
+        return 1
+    fi
+    downloaded_version="$(extract_script_version "$downloaded")"
+    if [[ "$downloaded_version" != "$release_version" ]]; then
+        rm -rf "$temp_dir"
+        printf '錯誤：下載版本與 Release tag 不一致。\n' >&2
+        return 1
+    fi
+    chmod 0755 "$downloaded" || {
+        rm -rf "$temp_dir"
+        printf '錯誤：無法設定新版腳本權限。\n' >&2
+        return 1
+    }
+    if ! mv -f "$downloaded" "$target"; then
+        rm -rf "$temp_dir"
+        printf '錯誤：無法原子替換穩定副本。\n' >&2
+        return 1
+    fi
+    rm -rf "$temp_dir"
+    printf '已更新至 v%s。重新執行 s 即可使用新版。\n' "$release_version"
+}
+
+show_projects() {
+    printf '暫無項目\n'
+}
+
 install_launcher() {
     local source_path stable_path launcher_path launcher_dir stable_dir temp_launcher
     local source_helper stable_helper helper_temp
@@ -648,8 +861,14 @@ main() {
             6)
                 run_supervisor_manager || true
                 ;;
-            7|8|9)
-                not_implemented
+            7)
+                install_fanout || true
+                ;;
+            8)
+                show_projects
+                ;;
+            9)
+                check_for_updates || true
                 ;;
             *)
                 printf '無效選項，請重新輸入。\n' >&2
