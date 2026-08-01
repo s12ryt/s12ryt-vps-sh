@@ -80,7 +80,7 @@ jobs:
             bootstrap: "true"
             manager: dnf
           - name: Rocky Linux 10
-            image: rockylinux:10
+            image: rockylinux/rockylinux:10
             bootstrap: "true"
             manager: dnf
           - name: AlmaLinux 10

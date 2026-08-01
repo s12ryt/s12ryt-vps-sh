@@ -10,7 +10,7 @@ cd /workspace
 bash -n s12ryt.sh install-proot.sh
 
 export S12RYT_SOURCE_ONLY=1
-# shellcheck source=../s12ryt.sh
+# shellcheck source=s12ryt.sh
 source ./s12ryt.sh
 actual_manager="$(detect_package_manager)"
 if [[ "$actual_manager" != "$EXPECTED_MANAGER" ]]; then
@@ -19,7 +19,7 @@ if [[ "$actual_manager" != "$EXPECTED_MANAGER" ]]; then
 fi
 
 export S12RYT_PROOT_SOURCE_ONLY=1
-# shellcheck source=../install-proot.sh
+# shellcheck source=install-proot.sh
 source ./install-proot.sh
 if [[ "$(map_host_arch "$(uname -m)")" != "linux/amd64" ]]; then
     printf '容器並非預期的 x86_64/amd64 平台。\n' >&2
