@@ -12,3 +12,4 @@
 - 建立專案進度、結構及操作紀錄檔；此時尚未新增正式程式碼或測試。
 - 工具盤點時曾啟動 WSL Bash 查詢版本、目錄映射及工具是否存在，未執行專案測試或正式程式；使用者隨即明確禁止使用其 WSL 測試，之後不得再呼叫 WSL。
 - 使用者選定所有 Bash TDD 與驗收只在 GitHub-hosted Actions 執行；已同步更新需求契約。
+- 建立首批主選單及非 root `s` 安裝 Bats 契約，GitHub Actions run `30680389156` 的 Bash 語法及 ShellCheck 通過，4 項 Bats 測試均因正式入口 `s12ryt.sh` 尚不存在而按預期失敗，形成第一輪 RED 證據。
