@@ -20,3 +20,6 @@
 - 完成網路診斷最小實作；GitHub Actions run `30680943003` 通過 Bash 語法、ShellCheck 與全部 13 項 Bats，完成第三輪 GREEN。
 - 建立 PRoot 路徑、固定 OCI 映像、架構映射、安裝/登入/列表/重裝/移除、破壞性確認與 helper 原子保護契約；測試全程使用 mock，不下載 rootfs 或執行 PRoot。
 - GitHub Actions run `30681103141` 中既有 13 項全綠，新增 6 項均因 PRoot helper 與選單接線尚不存在而按預期失敗，形成第四輪 RED 證據。
+- 完成 PRoot helper、固定 OCI 客體、架構映射、管理操作、破壞性確認與主選單接線；GitHub Actions run `30681357331` 通過 Bash 語法、ShellCheck 與全部 19 項 Bats，完成第四輪 GREEN。
+- 建立非互動 sudo、Python 3.9+ 選擇、隔離安裝釘選 `proot-distro==5.5.0` 與套件來源失敗語意契約；run `30681450453` 中既有 19 項全綠，新增 4 項因目標行為缺失而按預期失敗，形成第五輪 RED 證據。
+- 第五輪首次 GREEN run `30681517893` 僅因測試 PATH 洩漏 runner 的 `/usr/bin/python3.12` 而失敗；正式函式已正確選到支援版本。將案例 PATH 隔離至 mock 目錄後，run `30681608095` 通過 Bash 語法、ShellCheck 與全部 23 項 Bats，完成第五輪 GREEN。
