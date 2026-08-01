@@ -164,3 +164,35 @@
 - Python mock 契約涵蓋五個 minor、私有 uv 0.12.1 installer URL、逾時/語法/失敗保護、uv 二進位與資料路徑、版本化命令、不改系統預設、受管 Python pip、固定 seeded venv、既有版本補齊確認及非 uv 系統 Python 不被修改。
 - CI 不真實建立 NodeSource repository、不安裝 Node.js/Python，也不執行遠端 setup 腳本；所有安裝行為以 mock 驗證。
 - 更新 README、版本與 Release 後，完整 GitHub-hosted Bash 語法、ShellCheck、Bats、文件驗證及發行版容器煙霧矩陣不得新增錯誤。
+
+## v1.0.2 暫時來源修復契約（2026-08-01）
+
+本節為使用者回報 `bash <(curl ...)` 啟動失敗後確認的增量契約；若與前述快速開始、版本或安裝行為衝突，以本節為準。
+
+### 缺陷與版本
+
+- 已確認缺陷為 process substitution 讓 `${BASH_SOURCE[0]}` 指向短暫的 `/dev/fd` 或 `/proc/.../fd/pipe`；原實作解析該路徑後再複製，可能得到 `cp: cannot stat` 並無法建立穩定副本。
+- 主腳本與 README 版本更新為 `1.0.2`，保留既有 `v1.0.0`、`v1.0.1` Release，並建立正式 `v1.0.2` Release。
+
+### 暫時來源安裝與降級
+
+- 一般實體腳本來源維持既有穩定副本與 `s` 建立行為。
+- 當來源是 process substitution、pipe 或其他不可作為完整實體檔複製的暫時來源時，不得再嘗試複製解析後的 `/proc/.../fd/pipe` 路徑。
+- 暫時來源預設從 `https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh` 重新下載完整主腳本；測試可透過環境變數覆寫 URL，但正式預設不得改用非 HTTPS 來源。
+- 重新下載必須設置連線及總逾時，寫入穩定副本同目錄的暫存檔，通過 `bash -n`，並確認下載腳本內含版本與目前執行中的 `VERSION` 完全一致後，才可原子替換穩定副本並建立或覆寫 `s`。
+- 下載、語法、版本或原子替換失敗時，必須保留既有穩定副本與 `s`，清理暫存檔，顯示具體錯誤及醒目警告「僅臨時執行；s 可能不存在或仍是舊版」，然後繼續當次主選單，不因自我安裝失敗直接退出。
+- 一般實體來源發生目錄、複製或 launcher 寫入錯誤時，仍視為安裝失敗並停止，不套用暫時來源的寬容降級。
+
+### README 快速開始
+
+- 同時支援並記錄兩種方式：
+  - 保留 `bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)`，明示它會直接執行可變 main，且暫時來源會再下載一次完整腳本以建立穩定副本。
+  - 新增固定 `v1.0.2`、先下載實體暫存檔、執行 `bash -n`、再執行且自動清理的一行命令，作為可重現的替代方式。
+- 既有多行固定 Release 安裝流程保留並更新為 `v1.0.2`。
+
+### v1.0.2 TDD 與驗收
+
+- 先新增可在 GitHub-hosted runner 穩定重現 process substitution 的 Bats 回歸測試；RED 必須因目前嘗試複製短暫 pipe 而失敗。
+- mock 測試需涵蓋重新下載成功，以及下載失敗、語法失敗、版本不一致時保留既有穩定副本與 `s`、顯示降級警告並繼續選單。
+- README 文件驗證需涵蓋兩條快速開始方式、固定 `v1.0.2` URL 與風險說明。
+- 完成後執行完整 GitHub-hosted Bash 語法、ShellCheck、Bats、文件驗證及 10 發行版容器煙霧矩陣；不得使用本機 WSL、Git Bash 或本機 Bash 作為證據。
