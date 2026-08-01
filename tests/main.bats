@@ -11,7 +11,7 @@ setup() {
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"s12ryt 的 VPS 腳本"* ]]
-    [[ "$output" == *"版本: v1.0.1"* ]]
+    [[ "$output" == *"版本: v1.0.2"* ]]
     [[ "$output" == *"Copyright (C) 2026 s12ryt"* ]]
     [[ "$output" == *"GPL-3.0-only"* ]]
     [[ "$output" == *"不提供任何擔保"* ]]
@@ -46,7 +46,7 @@ setup() {
 
     run bash -c 'printf "0\n" | "$HOME/.local/bin/s"'
     [ "$status" -eq 0 ]
-    [[ "$output" == *"版本: v1.0.1"* ]]
+    [[ "$output" == *"版本: v1.0.2"* ]]
 }
 
 @test "選項 10 與 11 呼叫執行環境安裝流程" {
