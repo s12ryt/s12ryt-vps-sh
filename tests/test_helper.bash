@@ -9,6 +9,31 @@ setup_sandbox() {
     mkdir -p "$HOME"
 }
 
+setup_mock_bin() {
+    export MOCK_BIN="${TEST_ROOT}/mock-bin"
+    export MOCK_LOG="${TEST_ROOT}/commands.log"
+    mkdir -p "$MOCK_BIN"
+    : > "$MOCK_LOG"
+}
+
+create_command_mock() {
+    local command_name="$1"
+
+    cat > "${MOCK_BIN}/${command_name}" <<'EOF'
+#!/bin/bash
+printf '%s' "${0##*/}" >> "$MOCK_LOG"
+printf ' %s' "$@" >> "$MOCK_LOG"
+printf '\n' >> "$MOCK_LOG"
+if [[ "${0##*/}" == "sudo" ]]; then
+    if [[ "${1:-}" == "-n" && "${2:-}" == "true" ]]; then
+        exit 0
+    fi
+    exec "$@"
+fi
+EOF
+    chmod +x "${MOCK_BIN}/${command_name}"
+}
+
 run_menu() {
     local input="$1"
     run bash -c 'printf "%s" "$1" | bash "$2"' _ "$input" "${PROJECT_ROOT}/s12ryt.sh"
