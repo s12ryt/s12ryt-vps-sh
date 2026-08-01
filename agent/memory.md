@@ -26,3 +26,8 @@
 - 建立 Supervisor 已安裝客體白名單、套件安裝、`s12-service` 七項操作、服務名稱防護、detached 工作階段與主選單接線契約；run `30681760099` 中既有 23 項全綠，新增 6 項因目標行為缺失而按預期失敗，形成第六輪 RED 證據。
 - 完成 PRoot 客體內 Supervisor 與 `s12-service` 管理；run `30681871074` 通過 Bash 語法、ShellCheck 與全部 29 項 Bats，完成第六輪 GREEN。
 - 品質審查依 Alpine 3.23 官方套件內容識別設定檔位於 `/etc/supervisord.conf`，而 Debian/Ubuntu 位於 `/etc/supervisor/supervisord.conf`。回歸 run `30681951917` 僅新增的 Alpine 路徑斷言失敗，修正客體路徑映射後 run `30681997634` 通過全部 29 項 Bats、Bash 語法與 ShellCheck。
+- 建立 Fanout 前置檢查、下載與直接執行，以及項目列表與 GitHub Release 自我更新契約；run `30682189480` 的既有 29 項全綠，新增 9 項因目標函式不存在而按預期失敗，形成第七輪 RED。完成實作後 run `30682309550` 通過 Bash 語法、ShellCheck 與全部 38 項 Bats。
+- 授權審查新增互動主選單 GPL notice 契約；run `30682746703` 僅新增 notice 斷言按預期失敗，實作後 run `30682787814` 通過全部 38 項 Bats。
+- 品質審查發現系統更新雖先以 `sudo -n true` 驗證權限，實際命令仍可能互動提示密碼。run `30682930533` 僅非互動 sudo 契約按預期失敗；將命令前綴改為 `sudo -n` 並修正 mock 對 sudo 選項的轉送後，run `30683030627` 通過語法、ShellCheck 與全部 38 項 Bats。
+- 建立繁中 README 與英文簡介、canonical GPL-3.0-only 全文、來源授權標頭、文件校驗及 10 發行版 GitHub-hosted x86_64 容器煙霧矩陣。首輪 run `30683114122` 暴露 ShellCheck source 路徑與 Rocky Linux 10 映像名稱問題；修正後 run `30683189641` 通過 Bash 語法、ShellCheck、38 項 Bats、README/LICENSE 校驗，以及 Debian 13、Ubuntu 26.04、CentOS Stream 10、Rocky 10、Alma 10、Oracle Linux 10、Fedora latest、Alpine 3.23、Arch base、openSUSE Leap 16.0 全部容器煙霧測試。
+- 完成安全與品質審查：未發現 `eval`、`curl | bash`、`chmod 777` 或互動 sudo；下載的 PRoot helper、Fanout installer 與自我更新腳本均先做 Bash 語法驗證，破壞性 PRoot 操作需再次確認。驗收仍不包含真實 VPS、arm64 實機、真實系統升級、PRoot rootfs、Supervisor/Fanout 安裝或外部服務即時結果。
