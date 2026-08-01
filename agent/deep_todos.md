@@ -9,7 +9,7 @@
 - [x] TDD：主選單與自我安裝、系統資訊、系統更新（GREEN run `30680665994`）。
 - [x] TDD：IP 資訊、連通性及有限地區解析（RED run `30680830413`；GREEN run `30680943003`）。
 - [x] TDD：PRoot rootfs 管理與工具鏈安裝（GREEN runs `30681357331`、`30681608095`）。
-- [ ] TDD：Supervisor 服務管理。
+- [x] TDD：Supervisor 服務管理（GREEN run `30681871074`；Alpine 設定路徑回歸 GREEN run `30681997634`）。
 - [ ] TDD：Fanout、項目列表與自我更新。
 - [ ] 建立 README、授權與 GitHub Actions。
 - [ ] 執行完整回歸、靜態檢查及品質審查。
