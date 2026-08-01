@@ -93,12 +93,12 @@ run_update_function() {
 
 @test "目前已是最新版時只查詢 Release 且不下載腳本" {
     create_update_curl_mock
-    export MOCK_RELEASE_TAG=v1.0.2
+    export MOCK_RELEASE_TAG=v1.0.3
 
     run_update_function check_for_updates
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"目前已是最新版 v1.0.2"* ]]
+    [[ "$output" == *"目前已是最新版 v1.0.3"* ]]
     [ "$(grep -c '^curl ' "$MOCK_LOG")" -eq 1 ]
     grep -Fq 'https://api.github.com/repos/s12ryt/s12ryt-vps-sh/releases/latest' "$MOCK_LOG"
     grep -Fq 'old-version' "$UPDATE_TARGET"
