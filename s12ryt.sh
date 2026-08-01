@@ -4,7 +4,7 @@
 
 set -u
 
-readonly VERSION="1.0.0"
+readonly VERSION="1.0.1"
 
 read_os_name() {
     local os_release_file="${S12RYT_OS_RELEASE_FILE:-/etc/os-release}"
@@ -1245,6 +1245,8 @@ Copyright (C) 2026 s12ryt
 8. s12ryt 項目列表
 -----
 9. 檢查更新
+10. 安裝 Node.js
+11. 安裝 Python
 -----
 0. 退出
 -----
@@ -1298,6 +1300,12 @@ main() {
                 ;;
             9)
                 check_for_updates || true
+                ;;
+            10)
+                install_nodejs || true
+                ;;
+            11)
+                install_python || true
                 ;;
             *)
                 printf '無效選項，請重新輸入。\n' >&2
