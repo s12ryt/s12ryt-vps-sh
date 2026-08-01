@@ -34,7 +34,7 @@
 - [x] TDD：process substitution 重新下載、驗證、原子安裝與失敗降級（RED run `30697302635`；GREEN run `30697414395`）。
 - [x] 更新版本、README 兩種快速開始與文件驗證（RED run `30697495664`；GREEN run `30697608195`）。
 - [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN run `30697608195`）。
-- [ ] 建立並驗證 `v1.0.2` GitHub Release，保留既有 Releases。
+- [x] 建立並驗證 `v1.0.2` GitHub Release，保留既有 Releases（tag commit `41c5590de21d793bd4d465b172918c63350de26e`）。
 
 ## 驗收依據
 
