@@ -75,3 +75,10 @@
 - 完成交付前品質審查：TTY 控制碼不會在非互動環境輸出或等待；選項 1-11 均在功能前後清除並於成功、取消或錯誤後等待單鍵；0 與無效選項不暫停；腳本不執行 `history -c` 或修改 `HISTFILE`。未發現新增的重大或高風險問題；真實 VPS、不同終端模擬器與 arm64 實機仍屬手動驗收界線。
 - 發行候選提交 `0b75d10e6261f27f20fbc0243d0dc1b93ee640aa` 的 GitHub Actions run `30719748209` 通過 Bash 語法、ShellCheck、全部 64 項 Bats、README/LICENSE 驗證與 10 個 x86_64 發行版容器煙霧測試。
 - 建立正式 `v1.0.3` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.0.3），保留既有 Releases；latest Release API 正確回傳 `v1.0.3`，tag 精確指向上述全綠提交，並確認 tag 內 `s12ryt.sh` 版本為 `1.0.3`、`install-proot.sh` 可讀且 README 含終端互動與固定 `v1.0.3` 快速開始說明。
+- 使用者提供 `he-ipv6.md`，要求主選單 8 加入「s12ryt-多ipv6出站」、常駐低資源 Web 管理面板、IPv6 出口模式/拓撲、七種協議、隨機管理憑證與 CLI 安裝/更新/設定/卸載。
+- 查核 sing-box 官方文件，確認 VLESS、VMess、Hysteria2、TUIC、SOCKS、AnyTLS、Shadowsocks inbound/outbound、direct IPv6 綁定、source route 與 URLTest 等能力；2026-08-02 最新穩定版為 `v1.13.15`，採 GPL-3.0-or-later 且含名稱/關聯限制。本專案將其視為獨立、釘選並驗 checksum 的外部 binary。
+- 經多輪澄清，決定採 Go 模組化單體 + sing-box：繁中響應式無 CDN Web、公開 HTTP 風險提示、session/CSRF/限速、原子 JSON、systemd/OpenRC、ufw/firewalld/nftables、GitHub Release cross-build/checksum與失敗自動回滾。
+- 凍結 IPv6 契約：列出既有 global IPv6；可由介面與 CIDR 生成 1--256 個持久隨機地址並自動偵測唯一 gateway，不覆蓋全機 default route；重置需預覽、二次確認與原子切換；卸載只清專案地址/規則。
+- 凍結代理契約：七種本機 inbound、VLESS Reality/WS/gRPC、TLS自簽/ACME/外部cert、IPv4/IPv6/雙入站同埠、URI/JSON/QR/Base64；遠端 URI/JSON/Base64 訂閱、SOCKS/HTTP IPv4出口、三種模式、四種拓撲及共用 direct IPv6/遠端代理輪換池。
+- 健康檢查預設每30秒請求可配置HTTPS URL，連續3次失敗切換、首選連續3次成功切回，只影響新連線。資源驗收為64 IPv6、28節點、無流量穩定60秒時面板+sing-box idle RSS不超過100 MiB。
+- Web/Go/Playwright、Go test/vet、Bats、ShellCheck、Bash語法、資源基準與cross-build全部只在GitHub-hosted Actions；不在本機執行Go/Bash測試，不宣稱真實VPS或arm64實機已驗證。
