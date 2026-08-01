@@ -151,7 +151,7 @@ update_system() {
             printf '錯誤：系統更新需要 root 權限或可用的 sudo。\n' >&2
             return 1
         fi
-        privilege=(sudo)
+        privilege=(sudo -n)
     fi
 
     case "$manager" in
