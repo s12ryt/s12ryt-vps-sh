@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml/badge.svg)](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml)
 
-版本：`v1.0.2`
+版本：`v1.0.3`
 
 一個以 Bash 撰寫的跨發行版 VPS 管理選單，提供系統資訊、一般系統升級、網路診斷、PRoot 客體、Supervisor 服務管理、Fanout、Node.js、Python 安裝與自我更新。
 
@@ -18,10 +18,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s1
 
 這條命令會直接執行可隨時變更的 `main` 分支內容，適合快速試用，但不具版本可重現性，執行前應先審閱腳本。process substitution 是暫時來源，因此腳本會再下載一次完整腳本，通過 Bash 語法與版本驗證後才建立穩定副本及 `s`。若第二次下載或驗證失敗，當次選單仍可使用，但會警告「僅臨時執行；s 可能不存在或仍是舊版」。
 
-### 固定 `v1.0.2` 實體暫存檔
+### 固定 `v1.0.3` 實體暫存檔
 
 ```bash
-(tmp="$(mktemp)" && trap 'rm -f -- "$tmp"' EXIT && curl -fsSL --connect-timeout 5 --max-time 30 https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/s12ryt.sh -o "$tmp" && bash -n "$tmp" && bash "$tmp")
+(tmp="$(mktemp)" && trap 'rm -f -- "$tmp"' EXIT && curl -fsSL --connect-timeout 5 --max-time 30 https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.3/s12ryt.sh -o "$tmp" && bash -n "$tmp" && bash "$tmp")
 ```
 
 此命令先下載可重現的固定版本至實體暫存檔，通過 `bash -n` 後才執行，並於 subshell 結束時自動清理。需要同時下載 PRoot helper 時，請使用下方完整安裝流程。
@@ -36,10 +36,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s1
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf -- "$tmp_dir"' EXIT
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/s12ryt.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.3/s12ryt.sh \
     -o "$tmp_dir/s12ryt.sh"
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/install-proot.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.3/install-proot.sh \
     -o "$tmp_dir/install-proot.sh"
   bash -n "$tmp_dir/s12ryt.sh" "$tmp_dir/install-proot.sh"
   bash "$tmp_dir/s12ryt.sh"
@@ -61,6 +61,12 @@ s
 
 **重要：安裝程序會無條件覆蓋既有的 `s` 路徑，即使該命令不屬於本專案。** 非 root 的 `~/.local/bin` 不在 `PATH` 時，腳本只顯示應執行的 `export PATH=...` 指令，不會修改 `.bashrc` 或其他 shell 設定檔。
 
+## 終端互動
+
+互動終端首次顯示主選單前，以及執行選項 1 至 11 的頂層功能前，會清除目前畫面與 scrollback。功能無論成功、取消或錯誤，都會顯示 `按隨意鍵以返回腳本`，接收一個免 Enter 的按鍵後再次清除，再回到主選單。PRoot 與 Supervisor 只在進出整個子選單時套用一次此流程。
+
+這項功能只輸出終端控制碼，不會清除 Bash 指令歷史，也不會修改 `HISTFILE`。stdin 或 stdout 不是 TTY，或 `TERM=dumb` 時，非互動環境會自動略過清除與等待，避免 CI、管線與重新導向卡住。
+
 ## 功能
 
 | 選項 | 功能 | 行為摘要 |
@@ -73,9 +79,9 @@ s
 | 6 | 自動偽造 systemd | 以 Supervisor 管理 PRoot 客體服務，不提供 `systemctl` shim |
 | 7 | 自動安裝 Joey 的 fanout | 前置檢查通過後下載、語法驗證並直接執行官方上游安裝器 |
 | 8 | s12ryt 項目列表 | 第一版固定顯示「暫無項目」 |
-| 9 | 檢查更新 | 比對最新 GitHub Release，驗證後原子替換穩定副本 |
+| 9 | 安裝 Python | 透過專案私有 uv 選擇安裝 Python 3.10 至 3.14、direct pip 與固定 venv |
 | 10 | 安裝 Node.js | 從 NodeSource 選擇安裝 Node.js 20、22 或 24，並驗證 Node.js 與 npm |
-| 11 | 安裝 Python | 透過專案私有 uv 選擇安裝 Python 3.10 至 3.14、direct pip 與固定 venv |
+| 11 | 檢查更新 | 比對最新 GitHub Release，驗證後原子替換穩定副本 |
 
 ## 支援範圍
 
@@ -120,7 +126,7 @@ NodeSource setup 腳本沒有獨立 checksum；固定 HTTPS 來源與 Bash 語�
 
 ### Python
 
-選項 11 提供 Python 3.10、3.11、3.12、3.13、3.14，使用專案私有 `uv` 0.12.1 管理，不編譯或替換系統 Python。相關路徑如下：
+選項 9 提供 Python 3.10、3.11、3.12、3.13、3.14，使用專案私有 `uv` 0.12.1 管理，不編譯或替換系統 Python。相關路徑如下：
 
 | 內容 | 路徑 |
 | --- | --- |
@@ -176,7 +182,7 @@ bats --print-output-on-failure tests
 請先使用可丟棄 VPS 或快照，並依風險逐步驗證：
 
 1. 以 root 與非 root 各啟動一次，確認穩定副本、`s` 命令與 PATH 提示。
-2. 執行系統資訊、IP 資訊與項目列表，確認輸出可讀且失敗時能返回選單。
+2. 執行系統資訊、IP 資訊與項目列表，確認功能前會清除畫面，完成後可按任意單鍵返回，且 Bash 指令歷史不受影響。
 3. 在系統更新確認提示選擇 `N`，確認沒有執行套件命令；需要時再於快照環境確認一般升級。
 4. 安裝一個 PRoot 客體，測試列表、登入；先取消重裝/移除，再於可丟棄客體確認操作。
 5. 安裝 Supervisor，啟動工作階段並以測試服務驗證 `s12-service` 七項操作。
