@@ -197,9 +197,14 @@ run_node_installer() {
 }
 
 @test "NodeSource 下載語法或執行失敗時不安裝 nodejs" {
-    local mode
+    local mode expected_error row
 
-    for mode in download-fail syntax-fail setup-fail; do
+    for row in \
+        'download-fail 無法下載 NodeSource 安裝腳本' \
+        'syntax-fail NodeSource 安裝腳本語法驗證失敗' \
+        'setup-fail NodeSource 安裝腳本執行失敗'; do
+        mode="${row%% *}"
+        expected_error="${row#* }"
         rm -f "$NODE_READY_FILE"
         : > "$MOCK_LOG"
         create_node_commands
@@ -210,6 +215,7 @@ run_node_installer() {
         run_node_installer $'y\n22\n' S12RYT_CURL_MODE="$mode"
 
         [ "$status" -ne 0 ]
+        [[ "$output" == *"$expected_error"* ]]
         [[ "$(cat "$MOCK_LOG")" != *"apt-get install -y nodejs"* ]]
         [ ! -e "$NODE_READY_FILE" ]
     done

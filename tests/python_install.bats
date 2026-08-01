@@ -306,18 +306,26 @@ run_python_installer() {
 }
 
 @test "uv 下載語法安裝 Python 或 venv 失敗時不得誤報成功" {
-    local mode
+    local mode expected_error row
 
     create_python_manager_mock apt-get
     create_uv_curl_mock
     export S12RYT_EFFECTIVE_UID=0
-    for mode in download-fail syntax-fail installer-fail python-fail venv-fail; do
+    for row in \
+        'download-fail 無法下載 uv 安裝腳本' \
+        'syntax-fail uv 安裝腳本語法驗證失敗' \
+        'installer-fail uv 0.12.1 安裝失敗' \
+        'python-fail Python 3.14 安裝失敗' \
+        'venv-fail Python 3.14 固定 venv 建立失敗'; do
+        mode="${row%% *}"
+        expected_error="${row#* }"
         rm -rf "$PYTHON_ROOT" "$PYTHON_BIN_DIR"
         : > "$MOCK_LOG"
 
         run_python_installer $'3.14\ny\n' S12RYT_CURL_MODE="$mode" S12RYT_UV_MODE="$mode"
 
         [ "$status" -ne 0 ]
+        [[ "$output" == *"$expected_error"* ]]
         [[ "$output" != *"Python 3.14 安裝完成"* ]]
     done
 }
