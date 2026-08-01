@@ -28,6 +28,9 @@ if [[ "${0##*/}" == "sudo" ]]; then
     if [[ "${1:-}" == "-n" && "${2:-}" == "true" ]]; then
         exit 0
     fi
+    if [[ "${1:-}" == "-n" ]]; then
+        shift
+    fi
     exec "$@"
 fi
 EOF
