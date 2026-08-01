@@ -120,7 +120,9 @@ func TestConfigValidateRejectsUnsafeBoundaries(t *testing.T) {
 				{ID: "node-1", Protocol: ProtocolVMess, Port: 20001},
 			}
 		}},
-		{name: "unsupported protocol", mutate: func(config *Config) { config.Nodes = []Node{{ID: "node-1", Protocol: Protocol("unknown"), Port: 20000}} }},
+		{name: "unsupported protocol", mutate: func(config *Config) {
+			config.Nodes = []Node{{ID: "node-1", Protocol: Protocol("unknown"), Port: 20000}}
+		}},
 		{name: "unsupported routing mode", mutate: func(config *Config) { config.Routing.Mode = RoutingMode("unknown") }},
 		{name: "unsupported topology", mutate: func(config *Config) { config.Routing.Topology = Topology("unknown") }},
 	}
