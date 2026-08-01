@@ -46,6 +46,19 @@
 - [x] 執行完整 GitHub Actions 回歸與品質審查（GREEN runs `30719648858`、`30719748209`）。
 - [x] 建立並驗證 `v1.0.3` GitHub Release，保留既有 Releases（tag commit `0b75d10e6261f27f20fbc0243d0dc1b93ee640aa`）。
 
+## 目前任務：v1.1.0 多 IPv6 出站 Web 管理面板
+
+- [x] 讀取 `he-ipv6.md`，查核 sing-box 協議、路由、Release 與授權邊界。
+- [x] 完成多輪需求澄清，凍結 CLI、Web、安全、IPv6、協議、拓撲、更新及驗收契約。
+- [ ] TDD：Go 原子狀態、認證/session/CSRF、HTTP API 與嵌入式 Web UI。
+- [ ] TDD：sing-box 設定生成、七種 inbound、遠端 outbound 匯入、分享與訂閱輸出。
+- [ ] TDD：三種出口模式、四種拓撲、輪換池、健康檢查與自動 fallback。
+- [ ] TDD：IPv6 池、policy route、防火牆、systemd/OpenRC、日誌與原子回滾。
+- [ ] TDD：主選單 8 項目列表及安裝、更新、設定、卸載 CLI。
+- [ ] 建立 Playwright 桌面/手機驗收、x86_64/arm64 cross-build、SHA256 與資源基準。
+- [ ] 更新主腳本/README 至 `v1.1.0`，完成完整 GitHub-hosted 回歸與品質審查。
+- [ ] 建立並驗證 `v1.1.0` Release，保留既有 Releases。
+
 ## 驗收依據
 
 - 唯一需求契約：`agent/question.md`。
