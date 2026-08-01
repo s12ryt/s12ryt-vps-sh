@@ -124,11 +124,14 @@ EOF
     [ ! -s "$MOCK_LOG" ]
 }
 
-@test "Supervisor 工作階段以 PRoot detached 模式啟動並說明生命週期" {
+@test "Supervisor 工作階段使用客體設定路徑並以 PRoot detached 模式啟動" {
     run_supervisor_function start_supervisor_session s12-debian13
-
     [ "$status" -eq 0 ]
+    run_supervisor_function start_supervisor_session s12-alpine323
+    [ "$status" -eq 0 ]
+
     grep -Fq 'proot-distro login s12-debian13 --detach -- supervisord -n -c /etc/supervisor/supervisord.conf' "$MOCK_LOG"
+    grep -Fq 'proot-distro login s12-alpine323 --detach -- supervisord -n -c /etc/supervisord.conf' "$MOCK_LOG"
     [[ "$output" == *"只在此 PRoot Supervisor 工作階段存活"* ]]
     [[ "$output" == *"不是真正 systemd"* ]]
 }
