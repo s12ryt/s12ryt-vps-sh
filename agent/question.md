@@ -111,3 +111,56 @@
 
 - 本專案採 `GPL-3.0-only`；對外散布修改版時，須依 GPL 提供相同授權下的對應原始碼。
 - 不宣稱 GPL 能強迫未散布的私人修改公開。
+
+## v1.0.1 擴充契約（2026-08-01）
+
+本節為使用者在 v1.0.0 交付後確認的增量契約；若與前述版本、選單或功能敘述衝突，以本節為準。
+
+### 版本、選單與發行
+
+- 主腳本與 README 版本更新為 `1.0.1`，保留既有 `v1.0.0` Release，並建立正式 `v1.0.1` Release。
+- 主選單在選項 9 後新增：
+  - `10. 安裝 Node.js`
+  - `11. 安裝 Python`
+- 原有選項及行為維持不變；`0` 仍為退出。
+
+### README 快速開始
+
+- README 新增且只列一條 `main` 分支的一行快速開始命令：
+  `bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)`。
+- 快速開始段落必須明示該命令會直接執行可變的 `main` 分支內容；既有固定 Release、先下載再 `bash -n` 的安全安裝說明保留為一般安裝方式，不列為另一條「快速開始」。
+
+### 10. 安裝 Node.js
+
+- 先檢查 `node`；若已存在，顯示現有 `node --version` 並完全跳過，不新增 repository、不安裝或升級任何套件。
+- 尚未安裝時，先顯示偵測到的套件管理器並要求 `[y/N]` 確認；取消時不得下載或執行任何安裝命令。
+- 提供 Node.js `20`、`22`、`24` 三個 NodeSource 版本選項。Node.js 26 截至 2026-08-01 仍為 Current、不是 LTS，因此不提供。
+- Node.js 20 已於 2026-03-24 EOL；選擇 20 時必須明示已停止官方安全維護，並要求第二次 `[y/N]` 確認，取消時不得繼續。
+- NodeSource 僅支援 DEB 與 RHEL/RPM 套件來源：`apt-get` 使用 `https://deb.nodesource.com/setup_<major>.x`；`dnf`/`yum` 使用 `https://rpm.nodesource.com/setup_<major>.x`。
+- `apk`、`pacman`、`zypper` 及其他套件管理器必須清楚拒絕，不得靜默改用發行版套件、nvm 或其他來源。
+- 只支援 NodeSource 公布的 amd64/arm64（RPM 為 x86_64/aarch64）架構；其他架構清楚拒絕。
+- 官方 setup 腳本必須以 HTTPS 下載至暫存檔，設置連線及總逾時，通過 `bash -n` 後才以 root 或非互動 `sudo -n` 執行；不得使用 `curl | bash`。
+- setup 腳本下載、語法或執行失敗時，不得執行 `nodejs` 安裝；上游未提供 setup 腳本 checksum，README 必須揭露此信任界線。
+- setup 成功後，以相同權限執行 `apt-get install -y nodejs`、`dnf install -y nodejs` 或 `yum install -y nodejs`；完成後驗證並顯示 `node --version` 與 `npm --version`，驗證失敗需回報錯誤。
+- 需要 root 或可用的非互動 `sudo -n`；無權限時清楚拒絕且不得下載或安裝。
+
+### 11. 安裝 Python
+
+- 提供 Python `3.10`、`3.11`、`3.12`、`3.13`、`3.14` 五個版本選項；使用 Astral `uv` 管理版本，不依賴各發行版是否提供該 minor、不編譯 Python，也不改變系統 `python` 或 `python3` 預設命令。
+- 尚無所選 `python3.X` 時，先顯示偵測到的套件管理器與 uv 來源，再要求 `[y/N]` 確認；取消時不得下載或安裝。
+- 即使 uv 採目前帳號的私有路徑，仍依使用者要求強制需要 root 或可用的非互動 `sudo -n`；無權限時清楚拒絕且不得下載或安裝。
+- 腳本使用專案私有、精確釘選的 uv `0.12.1`，安裝於 `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/uv`，不沿用 PATH 中任意版本的 uv，也不修改 shell 設定檔。
+- uv installer 固定下載自 `https://releases.astral.sh/github/uv/releases/download/0.12.1/uv-installer.sh`，設置連線及總逾時，先通過 `bash -n` 再以 `UV_NO_MODIFY_PATH=1` 與專案私有安裝目錄執行。installer 內含各平台 uv 二進位的 SHA-256 並在安裝時驗證；installer 本身只由固定版本 HTTPS URL 與語法檢查保護，README 必須揭露此界線。
+- uv 管理的 Python 版本資料放在 `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/versions`；版本化命令放在 root 的 `/usr/local/bin` 或非 root 的 `$HOME/.local/bin`。只建立 `python3.X`，不得建立或覆寫無版本的 `python`、`python3`、`pip` 或 `pip3`。
+- 新安裝完成後，所選 uv 受管直譯器必須支援 `python3.X -m pip`；若缺 pip，只能對該 uv 受管直譯器使用 `ensurepip` 補齊，不得修改系統 Python。
+- 每個版本建立固定虛擬環境 `${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python/venvs/3.X`，使用 `uv venv --python 3.X --seed`，並驗證該環境的 Python minor 與 `python -m pip --version`。
+- 若 `python3.X` 已存在，先顯示版本並檢查直接 pip 與固定 venv。兩者皆存在時完全跳過；任一缺少時詢問是否補齊。
+- 使用者拒絕補齊時不得下載或修改任何內容。若既有 `python3.X` 不是 uv 管理且缺直接 pip，即使選擇補齊也不得修改該系統 Python，只建立或補齊固定、含 pip 的 venv，並清楚說明直接 pip 仍由系統安裝狀態決定。
+- 任一 uv 下載、語法、安裝、Python 下載、pip、venv 或驗證步驟失敗時回報錯誤，不得誤報成功。
+
+### v1.0.1 TDD 與驗收
+
+- 新增 Bats/mock 測試先形成 RED，涵蓋完整 12 項選單、既有版本跳過、確認與 EOL 二次確認、管理權限、NodeSource 平台/架構白名單、三個 Node.js major URL 與套件命令、node/npm 驗證，以及下載/語法/執行失敗保護。
+- Python mock 契約涵蓋五個 minor、私有 uv 0.12.1 installer URL、逾時/語法/失敗保護、uv 二進位與資料路徑、版本化命令、不改系統預設、受管 Python pip、固定 seeded venv、既有版本補齊確認及非 uv 系統 Python 不被修改。
+- CI 不真實建立 NodeSource repository、不安裝 Node.js/Python，也不執行遠端 setup 腳本；所有安裝行為以 mock 驗證。
+- 更新 README、版本與 Release 後，完整 GitHub-hosted Bash 語法、ShellCheck、Bats、文件驗證及發行版容器煙霧矩陣不得新增錯誤。
