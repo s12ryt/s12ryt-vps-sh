@@ -53,8 +53,12 @@ jobs:
         run: |
           test -s README.md
           test -s LICENSE
-          grep -Fq '版本：`v1.0.1`' README.md
+          grep -Fq '版本：`v1.0.2`' README.md
           grep -Fqx 'bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s12ryt.sh)' README.md
+          grep -Fq '固定 `v1.0.2` 實體暫存檔' README.md
+          grep -Fq 'https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.0.2/s12ryt.sh' README.md
+          grep -Fq 'bash -n "$tmp"' README.md
+          grep -Fq '會再下載一次完整腳本' README.md
           grep -Fq 'NodeSource setup 腳本沒有獨立 checksum' README.md
           grep -Fq '私有 `uv` 0.12.1' README.md
           grep -Fq 'uv installer 本身沒有獨立 checksum' README.md
