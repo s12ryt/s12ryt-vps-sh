@@ -23,3 +23,6 @@
 - 完成 PRoot helper、固定 OCI 客體、架構映射、管理操作、破壞性確認與主選單接線；GitHub Actions run `30681357331` 通過 Bash 語法、ShellCheck 與全部 19 項 Bats，完成第四輪 GREEN。
 - 建立非互動 sudo、Python 3.9+ 選擇、隔離安裝釘選 `proot-distro==5.5.0` 與套件來源失敗語意契約；run `30681450453` 中既有 19 項全綠，新增 4 項因目標行為缺失而按預期失敗，形成第五輪 RED 證據。
 - 第五輪首次 GREEN run `30681517893` 僅因測試 PATH 洩漏 runner 的 `/usr/bin/python3.12` 而失敗；正式函式已正確選到支援版本。將案例 PATH 隔離至 mock 目錄後，run `30681608095` 通過 Bash 語法、ShellCheck 與全部 23 項 Bats，完成第五輪 GREEN。
+- 建立 Supervisor 已安裝客體白名單、套件安裝、`s12-service` 七項操作、服務名稱防護、detached 工作階段與主選單接線契約；run `30681760099` 中既有 23 項全綠，新增 6 項因目標行為缺失而按預期失敗，形成第六輪 RED 證據。
+- 完成 PRoot 客體內 Supervisor 與 `s12-service` 管理；run `30681871074` 通過 Bash 語法、ShellCheck 與全部 29 項 Bats，完成第六輪 GREEN。
+- 品質審查依 Alpine 3.23 官方套件內容識別設定檔位於 `/etc/supervisord.conf`，而 Debian/Ubuntu 位於 `/etc/supervisor/supervisord.conf`。回歸 run `30681951917` 僅新增的 Alpine 路徑斷言失敗，修正客體路徑映射後 run `30681997634` 通過全部 29 項 Bats、Bash 語法與 ShellCheck。
