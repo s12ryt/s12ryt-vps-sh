@@ -183,6 +183,135 @@ update_system() {
     printf '系統更新完成。\n'
 }
 
+install_nodejs() {
+    local node_version npm_version manager machine_arch confirmation major installer_url temp_file
+    local effective_uid="${S12RYT_EFFECTIVE_UID:-$EUID}"
+    local -a privilege=()
+
+    if node_version="$(node --version 2>/dev/null)"; then
+        printf 'Node.js 已安裝：%s\n' "$node_version"
+        return 0
+    fi
+
+    if ! manager="$(detect_package_manager)"; then
+        printf '錯誤：找不到 NodeSource 支援的套件管理器。\n' >&2
+        return 1
+    fi
+    case "$manager" in
+        apt-get)
+            installer_url='https://deb.nodesource.com'
+            ;;
+        dnf|yum)
+            installer_url='https://rpm.nodesource.com'
+            ;;
+        *)
+            printf '錯誤：NodeSource 不支援套件管理器 %s。\n' "$manager" >&2
+            return 1
+            ;;
+    esac
+
+    machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
+    case "$machine_arch" in
+        x86_64|amd64|aarch64|arm64)
+            ;;
+        *)
+            printf '錯誤：NodeSource 不支援架構 %s。\n' "$machine_arch" >&2
+            return 1
+            ;;
+    esac
+
+    printf '套件管理器: %s\n' "$manager"
+    printf '是否使用 NodeSource 安裝 Node.js？ [y/N]: '
+    IFS= read -r confirmation || confirmation=""
+    case "$confirmation" in
+        y|Y|yes|YES)
+            ;;
+        *)
+            printf '已取消 Node.js 安裝。\n'
+            return 0
+            ;;
+    esac
+
+    printf '可選版本：20、22、24（26 目前不是 LTS）\n'
+    printf '請輸入 Node.js major: '
+    IFS= read -r major || major=""
+    case "$major" in
+        20|22|24)
+            ;;
+        *)
+            printf '錯誤：只支援 Node.js 20、22 或 24。\n' >&2
+            return 1
+            ;;
+    esac
+    if [[ "$major" == "20" ]]; then
+        printf '警告：Node.js 20 已於 2026-03-24 EOL，不再接受官方安全維護。\n'
+        printf '仍要安裝 Node.js 20？ [y/N]: '
+        IFS= read -r confirmation || confirmation=""
+        case "$confirmation" in
+            y|Y|yes|YES)
+                ;;
+            *)
+                printf '已取消 Node.js 20 安裝。\n'
+                return 0
+                ;;
+        esac
+    fi
+
+    if [[ ! "$effective_uid" =~ ^[0-9]+$ ]]; then
+        printf '錯誤：無法判斷目前管理權限。\n' >&2
+        return 1
+    fi
+    if (( effective_uid != 0 )); then
+        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+            printf '錯誤：Node.js 安裝需要 root 權限或可用的 sudo。\n' >&2
+            return 1
+        fi
+        privilege=(sudo -n)
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：下載 NodeSource 安裝腳本需要 curl。\n' >&2
+        return 1
+    fi
+
+    temp_file="$(mktemp "${TMPDIR:-/tmp}/s12ryt-nodesource.XXXXXX")" || {
+        printf '錯誤：無法建立 NodeSource 暫存檔。\n' >&2
+        return 1
+    }
+    installer_url="${installer_url}/setup_${major}.x"
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 "$installer_url" -o "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法下載 NodeSource 安裝腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：NodeSource 安裝腳本語法驗證失敗。\n' >&2
+        return 1
+    fi
+    if ! "${privilege[@]}" bash "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：NodeSource 安裝腳本執行失敗。\n' >&2
+        return 1
+    fi
+    rm -f "$temp_file"
+
+    if ! "${privilege[@]}" "$manager" install -y nodejs; then
+        printf '錯誤：Node.js 套件安裝失敗。\n' >&2
+        return 1
+    fi
+    if ! node_version="$(node --version 2>/dev/null)"; then
+        printf '錯誤：Node.js 安裝後驗證失敗。\n' >&2
+        return 1
+    fi
+    if ! npm_version="$(npm --version 2>/dev/null)"; then
+        printf '錯誤：npm 安裝後驗證失敗。\n' >&2
+        return 1
+    fi
+
+    printf 'Node.js: %s\n' "$node_version"
+    printf 'npm: %s\n' "$npm_version"
+}
+
 json_get() {
     local json_file="$1"
     local json_path="$2"
