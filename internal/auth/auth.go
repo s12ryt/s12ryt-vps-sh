@@ -124,20 +124,28 @@ func (manager *SessionManager) Create(clientIP string) (Session, error) {
 }
 
 func (manager *SessionManager) Validate(token string, csrfToken string, clientIP string) bool {
+	session, valid := manager.Lookup(token, clientIP)
+	if !valid {
+		return false
+	}
+	return constantTimeStringEqual(session.CSRFToken, csrfToken)
+}
+
+func (manager *SessionManager) Lookup(token string, clientIP string) (Session, bool) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 	session, exists := manager.sessions[token]
 	if !exists {
-		return false
+		return Session{}, false
 	}
 	if !manager.clock().Before(session.ExpiresAt) {
 		delete(manager.sessions, token)
-		return false
+		return Session{}, false
 	}
 	if session.ClientIP != clientIP {
-		return false
+		return Session{}, false
 	}
-	return constantTimeStringEqual(session.CSRFToken, csrfToken)
+	return session, true
 }
 
 func (manager *SessionManager) RevokeAll() {
