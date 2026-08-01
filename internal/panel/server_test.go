@@ -24,7 +24,7 @@ func newTestServer(t *testing.T) *Server {
 	}
 	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
 	return NewServer(Options{
-		BasePath:    "/abcdefghijkl",
+		BasePath:     "/abcdefghijkl",
 		PasswordHash: passwordHash,
 		Hasher:       hasher,
 		Sessions: auth.NewSessionManager(
