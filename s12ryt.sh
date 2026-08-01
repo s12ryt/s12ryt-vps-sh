@@ -315,6 +315,299 @@ install_nodejs() {
     printf 'npm: %s\n' "$npm_version"
 }
 
+validate_python_minor() {
+    case "${1:-}" in
+        3.10|3.11|3.12|3.13|3.14)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+python_runtime_root() {
+    printf '%s\n' "${S12RYT_PYTHON_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/s12ryt/python}"
+}
+
+python_uv_bin() {
+    printf '%s/uv/uv\n' "$(python_runtime_root)"
+}
+
+python_version_bin_dir() {
+    local effective_uid="${S12RYT_EFFECTIVE_UID:-$EUID}"
+
+    if [[ "$effective_uid" == "0" ]]; then
+        printf '/usr/local/bin\n'
+    else
+        printf '%s/.local/bin\n' "$HOME"
+    fi
+}
+
+python_venv_path() {
+    local minor="${1:-}"
+
+    validate_python_minor "$minor" || return 1
+    printf '%s/venvs/%s\n' "$(python_runtime_root)" "$minor"
+}
+
+resolve_python_command() {
+    local minor="$1"
+    local versioned_path
+
+    versioned_path="$(python_version_bin_dir)/python${minor}"
+    if [[ -x "$versioned_path" ]]; then
+        printf '%s\n' "$versioned_path"
+        return 0
+    fi
+    command -v "python${minor}" 2>/dev/null
+}
+
+python_reports_minor() {
+    local python_command="$1"
+    local minor="$2"
+    local version_output
+
+    version_output="$("$python_command" --version 2>&1)" || return 1
+    [[ "$version_output" == "Python ${minor}."* ]]
+}
+
+python_has_pip() {
+    "$1" -m pip --version >/dev/null 2>&1
+}
+
+fixed_python_venv_ready() {
+    local minor="$1"
+    local venv_python
+
+    venv_python="$(python_venv_path "$minor")/bin/python"
+    [[ -x "$venv_python" ]] || return 1
+    python_reports_minor "$venv_python" "$minor" || return 1
+    python_has_pip "$venv_python"
+}
+
+python_is_uv_managed() {
+    local python_command="$1"
+    local runtime_root resolved_path
+
+    runtime_root="$(python_runtime_root)"
+    resolved_path="$(readlink -f "$python_command" 2>/dev/null)" || return 1
+    case "$resolved_path" in
+        "$runtime_root/versions/"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+require_python_privilege() {
+    local effective_uid="${S12RYT_EFFECTIVE_UID:-$EUID}"
+
+    if [[ ! "$effective_uid" =~ ^[0-9]+$ ]]; then
+        printf '錯誤：無法判斷目前管理權限。\n' >&2
+        return 1
+    fi
+    if (( effective_uid != 0 )); then
+        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+            printf '錯誤：Python 安裝需要 root 權限或可用的 sudo。\n' >&2
+            return 1
+        fi
+    fi
+}
+
+ensure_private_uv() {
+    local runtime_root uv_bin uv_dir temp_file uv_version
+    local installer_url='https://releases.astral.sh/github/uv/releases/download/0.12.1/uv-installer.sh'
+
+    runtime_root="$(python_runtime_root)"
+    uv_bin="$(python_uv_bin)"
+    uv_dir="${runtime_root}/uv"
+    if [[ -x "$uv_bin" ]]; then
+        uv_version="$("$uv_bin" --version 2>/dev/null || true)"
+        if [[ "$uv_version" == "uv 0.12.1" ]]; then
+            return 0
+        fi
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：下載 uv 安裝腳本需要 curl。\n' >&2
+        return 1
+    fi
+    mkdir -p "$runtime_root" || {
+        printf '錯誤：無法建立 Python 執行環境目錄。\n' >&2
+        return 1
+    }
+    temp_file="$(mktemp "${TMPDIR:-/tmp}/s12ryt-uv.XXXXXX")" || {
+        printf '錯誤：無法建立 uv 暫存檔。\n' >&2
+        return 1
+    }
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 "$installer_url" -o "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法下載 uv 安裝腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：uv 安裝腳本語法驗證失敗。\n' >&2
+        return 1
+    fi
+    if ! UV_INSTALL_DIR="$uv_dir" UV_NO_MODIFY_PATH=1 bash "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：uv 0.12.1 安裝失敗。\n' >&2
+        return 1
+    fi
+    rm -f "$temp_file"
+    uv_version="$("$uv_bin" --version 2>/dev/null || true)"
+    if [[ "$uv_version" != "uv 0.12.1" ]]; then
+        printf '錯誤：uv 0.12.1 安裝後驗證失敗。\n' >&2
+        return 1
+    fi
+}
+
+create_fixed_python_venv() {
+    local minor="$1"
+    local python_selector="$2"
+    local runtime_root uv_bin venv_path venv_python
+
+    runtime_root="$(python_runtime_root)"
+    uv_bin="$(python_uv_bin)"
+    venv_path="$(python_venv_path "$minor")"
+    venv_python="${venv_path}/bin/python"
+    if ! UV_PYTHON_INSTALL_DIR="${runtime_root}/versions" \
+        UV_PYTHON_BIN_DIR="$(python_version_bin_dir)" \
+        "$uv_bin" venv --python "$python_selector" --seed "$venv_path"; then
+        printf '錯誤：Python %s 固定 venv 建立失敗。\n' "$minor" >&2
+        return 1
+    fi
+    if ! python_reports_minor "$venv_python" "$minor" || ! python_has_pip "$venv_python"; then
+        printf '錯誤：Python %s 固定 venv 驗證失敗。\n' "$minor" >&2
+        return 1
+    fi
+}
+
+install_python() {
+    local minor confirmation manager runtime_root uv_bin bin_dir venv_path
+    local python_command="" python_version="" pip_version="" python_selector=""
+    local existing_python=false direct_pip_ready=false venv_ready=false managed_python=false
+
+    printf '可選版本：3.10、3.11、3.12、3.13、3.14\n'
+    printf '請輸入 Python minor: '
+    minor=""
+    IFS= read -r minor || true
+    if ! validate_python_minor "$minor"; then
+        printf '錯誤：只支援 Python 3.10、3.11、3.12、3.13 或 3.14。\n' >&2
+        return 1
+    fi
+
+    runtime_root="$(python_runtime_root)"
+    uv_bin="$(python_uv_bin)"
+    bin_dir="$(python_version_bin_dir)"
+    venv_path="$(python_venv_path "$minor")"
+    if python_command="$(resolve_python_command "$minor")"; then
+        existing_python=true
+        if ! python_reports_minor "$python_command" "$minor"; then
+            printf '錯誤：既有 python%s 版本驗證失敗。\n' "$minor" >&2
+            return 1
+        fi
+        python_version="$("$python_command" --version 2>&1)"
+        python_has_pip "$python_command" && direct_pip_ready=true
+        fixed_python_venv_ready "$minor" && venv_ready=true
+        python_is_uv_managed "$python_command" && managed_python=true
+        if [[ "$direct_pip_ready" == true && "$venv_ready" == true ]]; then
+            printf '%s 已完整安裝，略過所有變更。\n' "$python_version"
+            return 0
+        fi
+
+        printf '偵測到 %s，但缺少：' "$python_version"
+        [[ "$direct_pip_ready" == true ]] || printf ' direct pip'
+        [[ "$venv_ready" == true ]] || printf ' 固定 venv'
+        printf '。\n'
+        printf '是否補齊缺少項目？ [y/N]: '
+    else
+        if ! manager="$(detect_package_manager)"; then
+            printf '錯誤：找不到支援的套件管理器。\n' >&2
+            return 1
+        fi
+        printf '套件管理器: %s\n' "$manager"
+        printf 'Python 將由專案私有 uv 0.12.1 管理。\n'
+        printf '是否安裝 Python %s？ [y/N]: ' "$minor"
+    fi
+
+    confirmation=""
+    IFS= read -r confirmation || true
+    case "$confirmation" in
+        y|Y|yes|YES)
+            ;;
+        *)
+            if [[ "$existing_python" == true ]]; then
+                printf '已取消補齊 Python %s。\n' "$minor"
+            else
+                printf '已取消 Python 安裝。\n'
+            fi
+            return 0
+            ;;
+    esac
+
+    require_python_privilege || return 1
+    ensure_private_uv || return 1
+    mkdir -p "$bin_dir" "${runtime_root}/versions" "${runtime_root}/venvs" || {
+        printf '錯誤：無法建立 Python 安裝目錄。\n' >&2
+        return 1
+    }
+
+    if [[ "$existing_python" != true ]]; then
+        if ! UV_PYTHON_INSTALL_DIR="${runtime_root}/versions" \
+            UV_PYTHON_BIN_DIR="$bin_dir" \
+            "$uv_bin" python install "$minor"; then
+            printf '錯誤：Python %s 安裝失敗。\n' "$minor" >&2
+            return 1
+        fi
+        python_command="${bin_dir}/python${minor}"
+        if [[ ! -x "$python_command" ]] || ! python_reports_minor "$python_command" "$minor"; then
+            printf '錯誤：Python %s 安裝後驗證失敗。\n' "$minor" >&2
+            return 1
+        fi
+        managed_python=true
+        direct_pip_ready=false
+    fi
+
+    if [[ "$managed_python" == true ]]; then
+        if ! python_has_pip "$python_command"; then
+            if ! "$python_command" -m ensurepip; then
+                printf '錯誤：Python %s pip 補齊失敗。\n' "$minor" >&2
+                return 1
+            fi
+        fi
+        if ! pip_version="$("$python_command" -m pip --version 2>/dev/null)"; then
+            printf '錯誤：Python %s pip 驗證失敗。\n' "$minor" >&2
+            return 1
+        fi
+        python_selector="$minor"
+    else
+        python_selector="$python_command"
+        if [[ "$direct_pip_ready" != true ]]; then
+            printf '提示：既有 Python 非 uv 管理，直接 pip 仍由系統安裝狀態決定。\n'
+        else
+            pip_version="$("$python_command" -m pip --version 2>/dev/null || true)"
+        fi
+    fi
+
+    if [[ "$venv_ready" != true ]]; then
+        create_fixed_python_venv "$minor" "$python_selector" || return 1
+    fi
+    if ! python_version="$("$python_command" --version 2>&1)"; then
+        printf '錯誤：Python %s 最終版本驗證失敗。\n' "$minor" >&2
+        return 1
+    fi
+    if [[ -z "$pip_version" && "$managed_python" == true ]]; then
+        printf '錯誤：Python %s pip 驗證結果為空。\n' "$minor" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$python_version"
+    [[ -z "$pip_version" ]] || printf '%s\n' "$pip_version"
+    printf '固定 venv: %s\n' "$venv_path"
+    printf 'Python %s 安裝完成。\n' "$minor"
+}
+
 json_get() {
     local json_file="$1"
     local json_path="$2"
