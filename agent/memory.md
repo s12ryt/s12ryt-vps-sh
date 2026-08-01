@@ -13,3 +13,6 @@
 - 工具盤點時曾啟動 WSL Bash 查詢版本、目錄映射及工具是否存在，未執行專案測試或正式程式；使用者隨即明確禁止使用其 WSL 測試，之後不得再呼叫 WSL。
 - 使用者選定所有 Bash TDD 與驗收只在 GitHub-hosted Actions 執行；已同步更新需求契約。
 - 建立首批主選單及非 root `s` 安裝 Bats 契約，GitHub Actions run `30680389156` 的 Bash 語法及 ShellCheck 通過，4 項 Bats 測試均因正式入口 `s12ryt.sh` 尚不存在而按預期失敗，形成第一輪 RED 證據。
+- 第一輪 GREEN 經 ShellCheck 修正後由 GitHub Actions run `30680516931` 驗證通過，共 4 項 Bats。
+- 建立系統資訊與一般系統升級契約，GitHub Actions run `30680599550` 因缺少目標函式按預期失敗；最小實作完成後 run `30680665994` 通過 Bash 語法、ShellCheck 與全部 8 項 Bats，完成第二輪 GREEN。
+- 新增 IP 分類、11 站點連通性、7 項有限服務地區解析與選單整合的第三輪測試；測試只使用 fixture/mock，不呼叫外部服務。

@@ -6,8 +6,8 @@
 - [x] 查核 PRoot、Fanout、GitHub Actions、發行版版本與參考專案。
 - [x] 完成三輪需求澄清並凍結驗收契約。
 - [x] 建立 GitHub-hosted 測試工作流程與無既有程式碼的 RED 基線證據（run `30680389156`；禁止使用本機 WSL）。
-- [ ] TDD：主選單與自我安裝（GREEN 進行中）、系統資訊、系統更新。
-- [ ] TDD：IP 資訊、連通性及有限地區解析。
+- [x] TDD：主選單與自我安裝、系統資訊、系統更新（GREEN run `30680665994`）。
+- [ ] TDD：IP 資訊、連通性及有限地區解析（RED 測試已建立，待遠端證據）。
 - [ ] TDD：PRoot rootfs 管理與 Supervisor 服務管理。
 - [ ] TDD：Fanout、項目列表與自我更新。
 - [ ] 建立 README、授權與 GitHub Actions。
