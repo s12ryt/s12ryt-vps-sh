@@ -23,9 +23,9 @@ setup() {
     [[ "$output" == *"6. 自動偽造 systemd"* ]]
     [[ "$output" == *"7. 自動安裝 Joey 的 fanout"* ]]
     [[ "$output" == *"8. s12ryt 項目列表"* ]]
-    [[ "$output" == *"9. 檢查更新"* ]]
+    [[ "$output" == *"9. 安裝 Python"* ]]
     [[ "$output" == *"10. 安裝 Node.js"* ]]
-    [[ "$output" == *"11. 安裝 Python"* ]]
+    [[ "$output" == *"11. 檢查更新"* ]]
     [[ "$output" == *"0. 退出"* ]]
 }
 
@@ -49,18 +49,20 @@ setup() {
     [[ "$output" == *"版本: v1.0.2"* ]]
 }
 
-@test "選項 10 與 11 呼叫執行環境安裝流程" {
+@test "選項 9 10 11 呼叫重新編號後的功能" {
     run env HOME="$HOME" S12RYT_SOURCE_ONLY=1 /bin/bash -c '
         source "$1"
         install_launcher() { :; }
         install_nodejs() { printf "node-installer-called\n"; }
         install_python() { printf "python-installer-called\n"; }
-        printf "10\n11\n0\n" | main
+        check_for_updates() { printf "update-called\n"; }
+        printf "9\n10\n11\n0\n" | main
     ' _ "${PROJECT_ROOT}/s12ryt.sh"
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"node-installer-called"* ]]
     [[ "$output" == *"python-installer-called"* ]]
+    [[ "$output" == *"node-installer-called"* ]]
+    [[ "$output" == *"update-called"* ]]
 }
 
 @test "安裝 s 命令時強制覆寫既有檔案且只提示 PATH" {
