@@ -455,15 +455,31 @@ install_supervisor_in_guest() {
     printf '此功能不提供 systemctl，相容行為由 Supervisor 負責。\n'
 }
 
+supervisor_config_path() {
+    case "$1" in
+        s12-debian13|s12-ubuntu2604)
+            printf '/etc/supervisor/supervisord.conf\n'
+            ;;
+        s12-alpine323)
+            printf '/etc/supervisord.conf\n'
+            ;;
+        *)
+            printf '錯誤：無法判斷客體的 Supervisor 設定路徑: %s\n' "$1" >&2
+            return 1
+            ;;
+    esac
+}
+
 start_supervisor_session() {
     local guest="$1"
-    local proot_distro
+    local config_path proot_distro
 
     validate_installed_guest "$guest" || return 1
+    config_path="$(supervisor_config_path "$guest")" || return 1
     configure_proot_environment >/dev/null || return 1
     proot_distro="$(resolve_proot_distro_bin)" || return 1
     "$proot_distro" login "$guest" --detach -- \
-        supervisord -n -c /etc/supervisor/supervisord.conf || return 1
+        supervisord -n -c "$config_path" || return 1
     printf 'Supervisor 已啟動；服務只在此 PRoot Supervisor 工作階段存活。\n'
     printf '這不是真正 systemd，主機終止工作階段後服務不保證持續執行。\n'
 }
