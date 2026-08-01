@@ -443,8 +443,89 @@ script_path() {
     printf '%s/%s\n' "$(cd "$(dirname "$source_path")" && pwd)" "$(basename "$source_path")"
 }
 
+proot_helper_path() {
+    if [[ -n "${S12RYT_PROOT_HELPER_PATH:-}" ]]; then
+        printf '%s\n' "$S12RYT_PROOT_HELPER_PATH"
+    elif (( EUID == 0 )); then
+        printf '/usr/local/lib/s12ryt/install-proot.sh\n'
+    else
+        printf '%s/.local/share/s12ryt/install-proot.sh\n' "$HOME"
+    fi
+}
+
+ensure_proot_helper() {
+    local source_path target_path target_dir temp_file helper_url
+
+    target_path="$(proot_helper_path)"
+    target_dir="$(dirname "$target_path")"
+    source_path="${S12RYT_PROOT_HELPER_SOURCE:-$(dirname "$(script_path)")/install-proot.sh}"
+    mkdir -p "$target_dir" || {
+        printf '錯誤：無法建立 PRoot 腳本目錄。\n' >&2
+        return 1
+    }
+
+    if [[ "$source_path" == "$target_path" && -f "$target_path" ]]; then
+        bash -n "$target_path" || {
+            printf '錯誤：既有 PRoot 腳本語法無效。\n' >&2
+            return 1
+        }
+        chmod 0755 "$target_path"
+        printf '%s\n' "$target_path"
+        return 0
+    fi
+
+    temp_file="$(mktemp "${target_dir}/.install-proot.XXXXXX")" || return 1
+    if [[ -f "$source_path" ]]; then
+        if ! cp "$source_path" "$temp_file"; then
+            rm -f "$temp_file"
+            printf '錯誤：無法複製 PRoot 腳本。\n' >&2
+            return 1
+        fi
+    else
+        if ! command -v curl >/dev/null 2>&1; then
+            rm -f "$temp_file"
+            printf '錯誤：下載 PRoot 腳本需要 curl。\n' >&2
+            return 1
+        fi
+        helper_url="${S12RYT_PROOT_HELPER_URL:-https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v${VERSION}/install-proot.sh}"
+        if ! curl -fsSL --connect-timeout 5 --max-time 30 "$helper_url" -o "$temp_file"; then
+            rm -f "$temp_file"
+            printf '錯誤：無法下載 PRoot 腳本。\n' >&2
+            return 1
+        fi
+    fi
+
+    if ! bash -n "$temp_file"; then
+        rm -f "$temp_file"
+        printf '錯誤：PRoot 腳本語法驗證失敗，保留既有版本。\n' >&2
+        return 1
+    fi
+    chmod 0755 "$temp_file"
+    if ! mv -f "$temp_file" "$target_path"; then
+        rm -f "$temp_file"
+        printf '錯誤：無法原子安裝 PRoot 腳本。\n' >&2
+        return 1
+    fi
+    printf '%s\n' "$target_path"
+}
+
+prepare_proot_script() {
+    local helper
+
+    helper="$(ensure_proot_helper)" || return 1
+    bash "$helper" setup
+}
+
+run_proot_manager() {
+    local helper
+
+    helper="$(ensure_proot_helper)" || return 1
+    bash "$helper" manage
+}
+
 install_launcher() {
     local source_path stable_path launcher_path launcher_dir stable_dir temp_launcher
+    local source_helper stable_helper helper_temp
 
     source_path="$(script_path)"
     if (( EUID == 0 )); then
@@ -467,6 +548,19 @@ install_launcher() {
             printf '錯誤：無法建立 s12ryt 穩定副本。\n' >&2
             return 1
         fi
+    fi
+
+    source_helper="$(dirname "$source_path")/install-proot.sh"
+    stable_helper="${stable_dir}/install-proot.sh"
+    if [[ -f "$source_helper" && "$source_helper" != "$stable_helper" ]]; then
+        helper_temp="$(mktemp "${stable_dir}/.install-proot.XXXXXX")" || return 1
+        if ! cp "$source_helper" "$helper_temp" || ! bash -n "$helper_temp"; then
+            rm -f "$helper_temp"
+            printf '錯誤：無法建立 PRoot 腳本穩定副本。\n' >&2
+            return 1
+        fi
+        chmod 0755 "$helper_temp"
+        mv -f "$helper_temp" "$stable_helper"
     fi
 
     temp_launcher="$(mktemp "${launcher_dir}/.s.XXXXXX")" || {
@@ -538,7 +632,13 @@ main() {
             3)
                 show_network_information || true
                 ;;
-            4|5|6|7|8|9)
+            4)
+                prepare_proot_script || true
+                ;;
+            5)
+                run_proot_manager || true
+                ;;
+            6|7|8|9)
                 not_implemented
                 ;;
             *)
