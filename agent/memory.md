@@ -19,3 +19,4 @@
 - GitHub Actions run `30680830413` 中既有 8 項測試全綠，新增 5 項分別因網路函式及選單接線不存在而按預期失敗，形成第三輪 RED 證據。
 - 完成網路診斷最小實作；GitHub Actions run `30680943003` 通過 Bash 語法、ShellCheck 與全部 13 項 Bats，完成第三輪 GREEN。
 - 建立 PRoot 路徑、固定 OCI 映像、架構映射、安裝/登入/列表/重裝/移除、破壞性確認與 helper 原子保護契約；測試全程使用 mock，不下載 rootfs 或執行 PRoot。
+- GitHub Actions run `30681103141` 中既有 13 項全綠，新增 6 項均因 PRoot helper 與選單接線尚不存在而按預期失敗，形成第四輪 RED 證據。
