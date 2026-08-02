@@ -222,7 +222,8 @@ func initializeProject(options initializationOptions) (initializationResult, err
 	passwordHashPath := filepath.Join(options.ProjectRoot, "secrets", "password.hash")
 	plainPasswordPath := filepath.Join(options.ProjectRoot, "secrets", "management.password")
 	runtimeStatePath := filepath.Join(options.ProjectRoot, "state", "runtime.json")
-	for _, path := range []string{configPath, passwordHashPath, plainPasswordPath, runtimeStatePath} {
+	runtimeConfigPath := filepath.Join(options.ProjectRoot, "config", "sing-box.json")
+	for _, path := range []string{configPath, passwordHashPath, plainPasswordPath, runtimeStatePath, runtimeConfigPath} {
 		if _, err := os.Lstat(path); err == nil {
 			return initializationResult{}, fmt.Errorf("初始化狀態已存在：%s", path)
 		} else if !os.IsNotExist(err) {
@@ -262,13 +263,22 @@ func initializeProject(options initializationOptions) (initializationResult, err
 		)
 		return initializationResult{}, errors.Join(fmt.Errorf("建立初始執行狀態：%w", err), cleanupInitializationError(cleanupErr))
 	}
+	runtimeInput, err := initialRuntimeState.Resolve(config)
+	if err != nil {
+		cleanupErr := cleanupInitializedProject(configPath, runtimeStatePath, runtimeConfigPath)
+		return initializationResult{}, errors.Join(fmt.Errorf("解析初始執行設定：%w", err), cleanupInitializationError(cleanupErr))
+	}
+	runtimeConfig, err := runtimeconfig.CompileServerConfig(runtimeInput)
+	if err != nil {
+		cleanupErr := cleanupInitializedProject(configPath, runtimeStatePath, runtimeConfigPath)
+		return initializationResult{}, errors.Join(fmt.Errorf("編譯初始 sing-box 設定：%w", err), cleanupInitializationError(cleanupErr))
+	}
+	if err := writeProtectedRuntimeConfig(runtimeConfigPath, runtimeConfig); err != nil {
+		cleanupErr := cleanupInitializedProject(configPath, runtimeStatePath, runtimeConfigPath)
+		return initializationResult{}, errors.Join(fmt.Errorf("建立初始 sing-box 設定：%w", err), cleanupInitializationError(cleanupErr))
+	}
 	if err := writeProtectedPasswordHash(passwordHashPath, passwordHash); err != nil {
-		cleanupErr := errors.Join(
-			removeInitializationFile(configPath),
-			removeInitializationFile(configPath+".bak"),
-			removeInitializationFile(runtimeStatePath),
-			removeInitializationFile(runtimeStatePath+".bak"),
-		)
+		cleanupErr := cleanupInitializedProject(configPath, runtimeStatePath, runtimeConfigPath)
 		if cleanupErr != nil {
 			return initializationResult{}, errors.Join(fmt.Errorf("建立管理密碼雜湊：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
 		}
@@ -281,6 +291,7 @@ func initializeProject(options initializationOptions) (initializationResult, err
 			removeInitializationFile(configPath+".bak"),
 			removeInitializationFile(runtimeStatePath),
 			removeInitializationFile(runtimeStatePath+".bak"),
+			removeInitializationFile(runtimeConfigPath),
 		)
 		if cleanupErr != nil {
 			return initializationResult{}, errors.Join(fmt.Errorf("保存管理密碼：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
@@ -288,6 +299,16 @@ func initializeProject(options initializationOptions) (initializationResult, err
 		return initializationResult{}, fmt.Errorf("保存管理密碼：%w", err)
 	}
 	return initializationResult{Password: secrets.Password, WebPath: secrets.WebPath, Port: config.Panel.Port}, nil
+}
+
+func cleanupInitializedProject(configPath string, runtimeStatePath string, runtimeConfigPath string) error {
+	return errors.Join(
+		removeInitializationFile(configPath),
+		removeInitializationFile(configPath+".bak"),
+		removeInitializationFile(runtimeStatePath),
+		removeInitializationFile(runtimeStatePath+".bak"),
+		removeInitializationFile(runtimeConfigPath),
+	)
 }
 
 func cleanupInitializationError(err error) error {
@@ -299,6 +320,45 @@ func cleanupInitializationError(err error) error {
 
 func writeProtectedPasswordHash(path string, passwordHash string) error {
 	return writeProtectedSecret(path, passwordHash, ".password-hash.*")
+}
+
+func writeProtectedRuntimeConfig(path string, contents []byte) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("建立 sing-box 設定目錄：%w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return fmt.Errorf("保護 sing-box 設定目錄：%w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".sing-box-config.*")
+	if err != nil {
+		return fmt.Errorf("建立 sing-box 設定暫存檔：%w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("保護 sing-box 設定暫存檔：%w", err)
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		temporary.Close()
+		return fmt.Errorf("寫入 sing-box 設定暫存檔：%w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return fmt.Errorf("同步 sing-box 設定暫存檔：%w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("關閉 sing-box 設定暫存檔：%w", err)
+	}
+	if err := os.Link(temporaryPath, path); err != nil {
+		return fmt.Errorf("安裝 sing-box 設定：%w", err)
+	}
+	if err := syncRuntimeDirectory(directory); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("同步 sing-box 設定目錄：%w", err)
+	}
+	return nil
 }
 
 func writeProtectedSecret(path string, value string, temporaryPattern string) error {
