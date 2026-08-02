@@ -93,6 +93,52 @@ func TestGenerateServerConfigBuildsVLESSReality(t *testing.T) {
 	}
 }
 
+func TestGenerateServerConfigBuildsACMEHTTP01TLS(t *testing.T) {
+	payload, err := GenerateServerConfig(ServerInput{Nodes: []InboundNode{{
+		ID:         "acme-node",
+		Protocol:   domain.ProtocolVLESS,
+		Port:       26003,
+		Listeners:  []netip.Addr{netip.MustParseAddr("2001:db8:abcd::10")},
+		Credential: Credential{UUID: "550e8400-e29b-41d4-a716-446655440000"},
+		TLS: TLSConfig{
+			Enabled:    true,
+			ServerName: "node.example.com",
+			ACME: &ACMEConfig{
+				Domains:           []string{"node.example.com"},
+				DataDirectory:     "/opt/s12ryt-ipv6/tls/acme",
+				DefaultServerName: "node.example.com",
+				Email:             "admin@example.com",
+				Provider:          "letsencrypt",
+			},
+		},
+	}}})
+	if err != nil {
+		t.Fatalf("GenerateServerConfig() error = %v", err)
+	}
+	inbound := decodeConfig(t, payload)["inbounds"].([]any)[0].(map[string]any)
+	tls := inbound["tls"].(map[string]any)
+	if _, exists := tls["certificate_path"]; exists {
+		t.Fatalf("ACME TLS unexpectedly contains certificate_path: %#v", tls)
+	}
+	if _, exists := tls["key_path"]; exists {
+		t.Fatalf("ACME TLS unexpectedly contains key_path: %#v", tls)
+	}
+	acme := tls["acme"].(map[string]any)
+	domains := acme["domain"].([]any)
+	if len(domains) != 1 || domains[0] != "node.example.com" {
+		t.Fatalf("ACME domains = %#v", domains)
+	}
+	if acme["data_directory"] != "/opt/s12ryt-ipv6/tls/acme" || acme["default_server_name"] != "node.example.com" {
+		t.Fatalf("ACME storage or default server = %#v", acme)
+	}
+	if acme["email"] != "admin@example.com" || acme["provider"] != "letsencrypt" {
+		t.Fatalf("ACME account = %#v", acme)
+	}
+	if acme["disable_http_challenge"] != false || acme["disable_tls_alpn_challenge"] != true {
+		t.Fatalf("ACME challenge policy = %#v", acme)
+	}
+}
+
 func TestGenerateServerConfigRejectsUnsafeTransportAndReality(t *testing.T) {
 	base := InboundNode{
 		ID:         "transport-node",
@@ -128,6 +174,20 @@ func TestGenerateServerConfigRejectsUnsafeTransportAndReality(t *testing.T) {
 			reality.ShortID = "not-hex"
 			node.TLS = TLSConfig{Enabled: true, Reality: reality}
 		}},
+		{name: "ACME with certificate files", mutate: func(node *InboundNode) {
+			node.TLS.ACME = validACMEConfig()
+		}},
+		{name: "ACME without domains", mutate: func(node *InboundNode) {
+			node.TLS = TLSConfig{Enabled: true, ACME: &ACMEConfig{DataDirectory: "/opt/s12ryt-ipv6/tls/acme"}}
+		}},
+		{name: "ACME outside project directory", mutate: func(node *InboundNode) {
+			acme := validACMEConfig()
+			acme.DataDirectory = "/tmp/acme"
+			node.TLS = TLSConfig{Enabled: true, ACME: acme}
+		}},
+		{name: "ACME with Reality", mutate: func(node *InboundNode) {
+			node.TLS = TLSConfig{Enabled: true, ACME: validACMEConfig(), Reality: validRealityConfig()}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -137,6 +197,16 @@ func TestGenerateServerConfigRejectsUnsafeTransportAndReality(t *testing.T) {
 				t.Fatal("GenerateServerConfig() accepted unsafe transport or Reality input")
 			}
 		})
+	}
+}
+
+func validACMEConfig() *ACMEConfig {
+	return &ACMEConfig{
+		Domains:           []string{"node.example.com"},
+		DataDirectory:     "/opt/s12ryt-ipv6/tls/acme",
+		DefaultServerName: "node.example.com",
+		Email:             "admin@example.com",
+		Provider:          "letsencrypt",
 	}
 }
 

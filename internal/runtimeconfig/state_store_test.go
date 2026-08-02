@@ -93,6 +93,57 @@ func TestDeploymentStateStoreKeepsBackupAndRejectsInvalidReplacement(t *testing.
 	}
 }
 
+func TestDeploymentStateStoreRoundTripsACMEHTTP01Configuration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "runtime.json")
+	stateStore, err := NewDeploymentStateStore(path)
+	if err != nil {
+		t.Fatalf("NewDeploymentStateStore() error = %v", err)
+	}
+	state := deploymentStateFixture()
+	state.Nodes[0].TLS = PersistedTLSConfig{
+		Enabled:    true,
+		ServerName: "node.example.com",
+		ACME: &PersistedACMEConfig{
+			Domains:           []string{"node.example.com"},
+			DataDirectory:     "/opt/s12ryt-ipv6/tls/acme",
+			DefaultServerName: "node.example.com",
+			Email:             "admin@example.com",
+			Provider:          "letsencrypt",
+		},
+	}
+	if err := stateStore.Save(state); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := stateStore.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(loaded, state) {
+		t.Fatalf("Load() = %#v, want %#v", loaded, state)
+	}
+	input, err := loaded.Resolve(configuredRuntimeConfig())
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	payload, err := CompileServerConfig(input)
+	if err != nil {
+		t.Fatalf("CompileServerConfig() error = %v", err)
+	}
+	for _, required := range []string{
+		`"acme"`,
+		`"domain": [`,
+		`"node.example.com"`,
+		`"data_directory": "/opt/s12ryt-ipv6/tls/acme"`,
+		`"disable_http_challenge": false`,
+		`"disable_tls_alpn_challenge": true`,
+	} {
+		if !strings.Contains(string(payload), required) {
+			t.Fatalf("compiled ACME payload missing %s: %s", required, payload)
+		}
+	}
+	assertFileMode(t, path, 0o600)
+}
+
 func TestDeploymentStateStoreRejectsUnknownJSONFields(t *testing.T) {
 	for name, payload := range map[string]string{
 		"top level":  `{"schema_version":1,"nodes":[],"ipv6_outbounds":[],"unknown":true}`,
@@ -174,6 +225,30 @@ func TestDeploymentStateValidationRejectsUnsafeState(t *testing.T) {
 		},
 		"unknown transport": func(state *DeploymentState) {
 			state.Nodes[0].Transport.Type = "quic"
+		},
+		"ACME and Reality": func(state *DeploymentState) {
+			state.Nodes[0].TLS = PersistedTLSConfig{
+				Enabled: true,
+				ACME: &PersistedACMEConfig{
+					Domains:       []string{"node.example.com"},
+					DataDirectory: "/opt/s12ryt-ipv6/tls/acme",
+				},
+				Reality: &PersistedRealityConfig{
+					HandshakeServer: "node.example.com",
+					HandshakePort:   443,
+					PrivateKey:      "private-key",
+					ShortID:         "0123456789abcdef",
+				},
+			}
+		},
+		"ACME unsafe directory": func(state *DeploymentState) {
+			state.Nodes[0].TLS = PersistedTLSConfig{
+				Enabled: true,
+				ACME: &PersistedACMEConfig{
+					Domains:       []string{"node.example.com"},
+					DataDirectory: "/tmp/acme",
+				},
+			}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
