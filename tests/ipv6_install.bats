@@ -337,12 +337,14 @@ EOF
     create_verified_ipv6_bundle "$bundle"
     chmod 0644 "${bundle}/s12ryt-ipv6-linux-amd64"
     local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    local network_unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6-network.service"
 
     run /usr/bin/env \
         PATH="$PATH" \
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        S12RYT_SYSTEMD_NETWORK_UNIT_PATH="$network_unit_path" \
         /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 systemd' _ \
         "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
 
