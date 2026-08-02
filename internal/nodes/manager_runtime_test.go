@@ -114,7 +114,7 @@ func newRuntimeManagedTestManager(t *testing.T, applier DeploymentApplier) *Mana
 	state := runtimeconfig.DeploymentState{
 		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
 		Nodes:         []runtimeconfig.PersistedNodeDeployment{},
-		IPv6Outbounds: []netip.Addr{},
+		IPv6Outbounds: []netip.Addr{netip.MustParseAddr("2001:db8:ffff::10")},
 	}
 	manager, err := NewManager(ManagerOptions{
 		Config:            domain.DefaultConfig(),
