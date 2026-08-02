@@ -39,6 +39,40 @@ jobs:
       - name: Run Go vet
         run: go vet ./...
 
+  release-build:
+    name: Release asset build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Build verified release assets
+        shell: bash
+        run: bash scripts/build-release.sh build .tmp/release
+
+      - name: Verify release checksums
+        shell: bash
+        working-directory: .tmp/release
+        run: sha256sum -c SHA256SUMS
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ipv6-release-assets
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            .tmp/release/s12ryt-ipv6-linux-amd64
+            .tmp/release/s12ryt-ipv6-linux-arm64
+            .tmp/release/SHA256SUMS
+
   test:
     name: Bash tests
     runs-on: ubuntu-latest
