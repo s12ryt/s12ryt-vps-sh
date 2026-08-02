@@ -3,7 +3,9 @@ package share
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -196,6 +198,43 @@ func TestOtherModesDoNotAdvertiseClientSideSplitRouting(t *testing.T) {
 	}
 }
 
+func TestGenerateBundleRendersExactNodeURIsAsPNG(t *testing.T) {
+	renderer := &recordingQRRenderer{png: []byte("png-fixture")}
+	first := completeNode(domain.ProtocolVLESS, 25557)
+	first.ID = "node-vless"
+	second := completeNode(domain.ProtocolTUIC, 25558)
+	second.ID = "node-tuic"
+	bundle, err := GenerateBundle(Input{
+		LocalNodes: []LocalNode{first, second},
+		QRRenderer: renderer,
+	})
+	if err != nil {
+		t.Fatalf("GenerateBundle() error = %v", err)
+	}
+	if len(renderer.payloads) != 2 {
+		t.Fatalf("QR render calls = %d, want 2", len(renderer.payloads))
+	}
+	for index, artifact := range bundle.Nodes {
+		if renderer.payloads[index] != artifact.URI || artifact.QRPayload != artifact.URI {
+			t.Fatalf("QR payload %d does not match URI", index)
+		}
+		if !reflect.DeepEqual(artifact.QRPNG, renderer.png) {
+			t.Fatalf("QR PNG %d = %q", index, artifact.QRPNG)
+		}
+	}
+}
+
+func TestGenerateBundlePreservesQREncoderErrors(t *testing.T) {
+	sentinel := errors.New("QR encoder failed")
+	_, err := GenerateBundle(Input{
+		LocalNodes:  []LocalNode{completeNode(domain.ProtocolVLESS, 25559)},
+		QRRenderer: &recordingQRRenderer{err: sentinel},
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("GenerateBundle() error = %v, want sentinel", err)
+	}
+}
+
 func TestGenerateBundleRejectsUnsafeOrIncompleteLocalNodes(t *testing.T) {
 	base := completeNode(domain.ProtocolVLESS, 26001)
 	tests := []struct {
@@ -234,4 +273,18 @@ func completeNode(protocol domain.Protocol, port int) LocalNode {
 		Healthy:  true,
 		TLS:      TLSOptions{ServerName: "node.example.com"},
 	}
+}
+
+type recordingQRRenderer struct {
+	payloads []string
+	png      []byte
+	err      error
+}
+
+func (renderer *recordingQRRenderer) RenderPNG(payload string) ([]byte, error) {
+	renderer.payloads = append(renderer.payloads, payload)
+	if renderer.err != nil {
+		return nil, renderer.err
+	}
+	return append([]byte(nil), renderer.png...), nil
 }
