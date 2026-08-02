@@ -27,8 +27,10 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
+	projectqrcode "github.com/s12ryt/s12ryt-vps-sh/internal/qrcode"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeprocess"
+	projectshare "github.com/s12ryt/s12ryt-vps-sh/internal/share"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 	projectsystem "github.com/s12ryt/s12ryt-vps-sh/internal/system"
 )
@@ -67,6 +69,23 @@ type integrationRestorer interface {
 
 type endpointUpdater interface {
 	Apply(context.Context, domain.PanelConfig) error
+}
+
+type runtimeNodeHealth struct {
+	runtime managedRuntime
+}
+
+func (health runtimeNodeHealth) Healthy(ctx context.Context, _ string) (bool, error) {
+	if ctx == nil {
+		return false, errors.New("節點健康檢查缺少 context")
+	}
+	if health.runtime == nil {
+		return false, errors.New("節點健康檢查缺少資料平面")
+	}
+	if err := health.runtime.Healthy(ctx); err != nil {
+		return false, fmt.Errorf("檢查 sing-box 資料平面健康：%w", err)
+	}
+	return true, nil
 }
 
 type integrationStateManager interface {
@@ -868,6 +887,18 @@ func loadApplication(options runtimeOptions) (application, error) {
 		}
 		acmeChallengeChecker = checker
 	}
+	qrRenderer, err := projectqrcode.NewPNGRenderer()
+	if err != nil {
+		return application{}, fmt.Errorf("建立 QR 圖片產生器：%w", err)
+	}
+	shareService, err := projectshare.NewService(projectshare.ServiceOptions{
+		Source:     nodeManager,
+		Health:     runtimeNodeHealth{runtime: runtime},
+		QRRenderer: qrRenderer,
+	})
+	if err != nil {
+		return application{}, fmt.Errorf("建立分享服務：%w", err)
+	}
 	server := panel.NewServer(panel.Options{
 		BasePath:             config.Panel.Path,
 		PasswordHash:         passwordHash,
@@ -880,6 +911,7 @@ func loadApplication(options runtimeOptions) (application, error) {
 		RemoteManager:        nodeManager,
 		NetworkManager:       networkManager,
 		ACMEChallengeChecker: acmeChallengeChecker,
+		ShareService:          shareService,
 	})
 	addresses := []string{fmt.Sprintf("[::]:%d", config.Panel.Port)}
 	if config.Panel.ListenIPv6 != "" {
