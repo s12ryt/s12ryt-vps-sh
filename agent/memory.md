@@ -135,3 +135,10 @@
 - 盤點現有 Go raw-string 內嵌頁面與 Playwright 契約：功能區長頁堆疊、樣式分散、mutation 缺一致 loading/disabled、防重複提交與成功回饋，modal 缺焦點鎖定/返回，錯誤多集中在區塊頂端；既有八個 static modal、無 CDN、CSRF/session/client-IP/秘密遮罩契約均須保留。
 - 完成 UI/UX 設計系統調研；使用者確認深色 NOC 控制台、平衡密度、完整操作優化、Desktop 側欄與 Mobile 分頁，並以五工作區 `strategy/nodes/remotes/network/shares` 的 URL hash 支援重新整理及瀏覽器歷史。
 - 使用者確認完成後發布 `v1.1.1`，保留 `v1.1.0`；所有驗證仍只在 GitHub-hosted Actions 執行。
+- 建立深色 NOC、五工作區與 URL hash 導覽契約；Actions `30763826348`、`30764059793` 精確顯示既有亮色長頁缺少 dark theme、五個 tab/tabpanel、hash/back/forward/deep-link。實作 Desktop 固定側欄、Mobile 水平分頁及單工作區顯示後，Actions `30764482384` 完整通過 Go、Playwright、Bash、Release、資源及 10 發行版驗收。
+- 建立 mutation loading/disabled、`aria-busy`、防重複提交與 live status 契約；RED `30764686785`。首次實作 run `30764918793` 揭露受保護分享表單沒有保留 busy 狀態；改為專用且唯一的分享 submission handler 後，GREEN `30765218346`。
+- 建立 skip link、可見 `focus-visible`、modal 初始焦點、焦點鎖定、Escape/明確按鈕關閉與焦點返回契約；RED `30765436863`，GREEN `30765726727`。static backdrop 與既有敏感內容清理行為維持不變。
+- 建立 listener 欄位旁可恢復錯誤與危險操作層級契約；RED `30766047643`。實作 `aria-invalid`/`aria-describedby`/本機錯誤聚焦、修正後清除，以及節點與遠端出口不可逆提示後，GREEN `30766286190`。此輪未變更 API、schema、安全、CLI 或 sing-box 行為。
+- v1.1.1 版本與文件契約 Actions `30766661023` 中，Go、18 項 Playwright、Release assets、60 秒資源及 10 發行版容器均維持通過；96 項 Bats 只有主版本、自我更新與 IPv6 v1.1.1 資產 URL 共五項按預期失敗，形成有效 RED。
+- 將主腳本與 IPv6 helper 升至 `1.1.1`，同步 package metadata，README 新增深色 NOC、五工作區 hash、操作狀態、欄位錯誤、危險操作及鍵盤/modal 焦點說明。發行候選 Actions `30766839172` 完整通過 Go format/test/vet、Bash syntax/ShellCheck、96 Bats、README/LICENSE、Playwright desktop/mobile 18 項、amd64/arm64 Release 資產、真實 64 IPv6 + 28 nodes 穩定 60 秒資源門檻及 10 個 x86_64 發行版容器。
+- 完成 v1.1.1 發行前品質審查，未發現未處理的重大或高風險問題。剩餘邊界仍為未在真實外部 VPS 驗證、arm64 僅完成交叉編譯，以及使用者已接受的公開 HTTP 攔截風險；README 保留明確警告。
