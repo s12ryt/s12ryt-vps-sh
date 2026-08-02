@@ -221,6 +221,205 @@ fetch_ipv6_release_bundle() {
     printf 'IPv6 專案資產下載與驗證完成。\n'
 }
 
+write_ipv6_project_file() {
+    local path="$1"
+    local mode="$2"
+    local content="$3"
+    local parent temporary_file
+
+    parent="${path%/*}"
+    if [[ "$parent" == "$path" ]]; then
+        parent='.'
+    fi
+    mkdir -p -- "$parent" || return 1
+    temporary_file="$(mktemp "${parent}/.s12ryt-ipv6-file.XXXXXX")" || return 1
+    if ! printf '%s' "$content" > "$temporary_file" ||
+        ! chmod "$mode" "$temporary_file" ||
+        ! mv -f -- "$temporary_file" "$path"; then
+        rm -f -- "$temporary_file"
+        return 1
+    fi
+}
+
+systemd_unit_content() {
+    local project_root="$1"
+
+    cat <<EOF
+[Unit]
+Description=s12ryt IPv6 outbound panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=${project_root}/bin/s12ryt-ipv6 serve
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=${project_root}
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+openrc_service_content() {
+    local project_root="$1"
+
+    cat <<EOF
+#!/sbin/openrc-run
+name="s12ryt IPv6 outbound panel"
+description="s12ryt IPv6 outbound panel"
+command="${project_root}/bin/s12ryt-ipv6"
+command_args="serve"
+command_background=true
+pidfile=/run/s12ryt-ipv6.pid
+output_log=/var/log/s12ryt-ipv6/panel.log
+error_log=/var/log/s12ryt-ipv6/panel.log
+
+depend() {
+    need net
+    after firewall
+}
+EOF
+}
+
+openrc_logrotate_content() {
+    cat <<'EOF'
+/var/log/s12ryt-ipv6/*.log {
+    daily
+    rotate 7
+    size 100M
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+}
+
+cleanup_new_ipv6_installation() {
+    local project_root="$1"
+    local remove_state="$2"
+
+    rm -f -- "${project_root}/bin/s12ryt-ipv6" "${project_root}/bin/sing-box"
+    if [[ "$remove_state" == "1" ]]; then
+        rm -rf -- "${project_root}/config" "${project_root}/secrets"
+    fi
+}
+
+install_verified_ipv6_bundle() {
+    local bundle="$1"
+    local architecture="$2"
+    local init_system="$3"
+    local project_root panel_asset singbox_asset archive_entry
+    local binary_directory temporary_directory panel_source archive_source
+    local panel_temporary singbox_temporary had_state=0
+    local unit_path service_path logrotate_path command_name
+
+    panel_asset="$(panel_asset_name "$architecture")" || return 1
+    singbox_asset="$(singbox_asset_name "$architecture")" || return 1
+    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
+    binary_directory="${project_root}/bin"
+    panel_source="${bundle}/${panel_asset}"
+    archive_source="${bundle}/${singbox_asset}"
+    archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
+
+    if [[ ! -f "$panel_source" || ! -x "$panel_source" || ! -f "$archive_source" ]]; then
+        printf '錯誤：已驗證的 IPv6 專案資產不完整。\n' >&2
+        return 1
+    fi
+    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
+        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
+        return 1
+    fi
+    for command_name in chmod cp mkdir mktemp mv rm tar; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            printf '錯誤：缺少必要命令：%s。\n' "$command_name" >&2
+            return 1
+        fi
+    done
+    if [[ -e "${binary_directory}/s12ryt-ipv6" || -e "${binary_directory}/sing-box" ]]; then
+        printf '錯誤：IPv6 專案 binary 已存在；請使用更新流程。\n' >&2
+        return 1
+    fi
+    if [[ -e "${project_root}/config/config.json" || -e "${project_root}/secrets/password.hash" ]]; then
+        had_state=1
+    fi
+
+    mkdir -p -- "$binary_directory" || {
+        printf '錯誤：無法建立 IPv6 專案 binary 目錄。\n' >&2
+        return 1
+    }
+    chmod 0755 "$project_root" "$binary_directory" || return 1
+    temporary_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-install.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案安裝暫存目錄。\n' >&2
+        return 1
+    }
+    panel_temporary="${temporary_directory}/s12ryt-ipv6"
+    singbox_temporary="${temporary_directory}/sing-box"
+
+    if ! cp -- "$panel_source" "$panel_temporary" ||
+        ! tar -xzf "$archive_source" -C "$temporary_directory" "$archive_entry" 2>/dev/null ||
+        ! mv -- "${temporary_directory}/${archive_entry}" "$singbox_temporary" ||
+        ! chmod 0755 "$panel_temporary" "$singbox_temporary" ||
+        ! mv -- "$panel_temporary" "${binary_directory}/s12ryt-ipv6" ||
+        ! mv -- "$singbox_temporary" "${binary_directory}/sing-box"; then
+        rm -rf -- "$temporary_directory"
+        cleanup_new_ipv6_installation "$project_root" 0
+        printf '錯誤：無法部署 IPv6 專案 binary。\n' >&2
+        return 1
+    fi
+    rm -rf -- "$temporary_directory"
+
+    if ((had_state == 0)); then
+        if ! S12RYT_PROJECT_ROOT="$project_root" "${binary_directory}/s12ryt-ipv6" init; then
+            cleanup_new_ipv6_installation "$project_root" 1
+            printf '錯誤：面板初始化失敗。\n' >&2
+            return 1
+        fi
+    fi
+    if [[ ! -f "${project_root}/config/config.json" || ! -f "${project_root}/secrets/password.hash" ]]; then
+        cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
+        printf '錯誤：面板初始化狀態不完整。\n' >&2
+        return 1
+    fi
+    chmod 0700 "${project_root}/config" "${project_root}/secrets" || return 1
+    chmod 0600 "${project_root}/config/config.json" "${project_root}/secrets/password.hash" || return 1
+
+    if [[ "$init_system" == "systemd" ]]; then
+        unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
+        if ! write_ipv6_project_file "$unit_path" 0644 "$(systemd_unit_content "$project_root")" ||
+            ! systemctl daemon-reload ||
+            ! systemctl enable --now s12ryt-ipv6.service; then
+            rm -f -- "$unit_path"
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
+            printf '錯誤：無法註冊 systemd 服務。\n' >&2
+            return 1
+        fi
+    else
+        service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
+        logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
+        if ! write_ipv6_project_file "$service_path" 0755 "$(openrc_service_content "$project_root")" ||
+            ! write_ipv6_project_file "$logrotate_path" 0644 "$(openrc_logrotate_content)" ||
+            ! rc-update add s12ryt-ipv6 default ||
+            ! rc-service s12ryt-ipv6 start; then
+            rc-update del s12ryt-ipv6 default >/dev/null 2>&1 || true
+            rm -f -- "$service_path" "$logrotate_path"
+            cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
+            printf '錯誤：無法註冊 OpenRC 服務。\n' >&2
+            return 1
+        fi
+    fi
+
+    printf '多 IPv6 出站面板安裝完成。\n'
+}
+
 main() {
     case "${1:-}" in
         preflight | '')
