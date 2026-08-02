@@ -18,18 +18,18 @@ func TestServiceBuildsProtectedDualStackShareBundle(t *testing.T) {
 	config.Routing.Mode = domain.RoutingModeClientIPv4
 	config.Nodes = []domain.Node{
 		{
-			ID: "edge",
-			Protocol: domain.ProtocolVLESS,
-			Port: 24443,
-			Enabled: true,
+			ID:         "edge",
+			Protocol:   domain.ProtocolVLESS,
+			Port:       24443,
+			Enabled:    true,
 			Credential: domain.NodeCredential{UUID: "11111111-1111-4111-8111-111111111111"},
 		},
 		{
-			ID: "disabled",
+			ID:       "disabled",
 			Protocol: domain.ProtocolTUIC,
-			Port: 24444,
+			Port:     24444,
 			Credential: domain.NodeCredential{
-				UUID: "22222222-2222-4222-8222-222222222222",
+				UUID:     "22222222-2222-4222-8222-222222222222",
 				Password: "abcdefghijklmnopqrstuvwx",
 			},
 		},
@@ -44,34 +44,34 @@ func TestServiceBuildsProtectedDualStackShareBundle(t *testing.T) {
 					netip.MustParseAddr("2001:db8:100::10"),
 				},
 				TLS: runtimeconfig.PersistedTLSConfig{
-					Enabled: true,
-					ServerName: "edge.example.com",
+					Enabled:         true,
+					ServerName:      "edge.example.com",
 					CertificatePath: "/opt/s12ryt-ipv6/tls/server.crt",
-					KeyPath: "/opt/s12ryt-ipv6/tls/server.key",
+					KeyPath:         "/opt/s12ryt-ipv6/tls/server.key",
 				},
 				Transport: runtimeconfig.PersistedTransportConfig{Type: singbox.TransportWebSocket, Path: "/edge"},
 			},
 			{
-				NodeID: "disabled",
+				NodeID:    "disabled",
 				Listeners: []netip.Addr{netip.MustParseAddr("2001:db8:100::11")},
 				TLS: runtimeconfig.PersistedTLSConfig{
-					Enabled: true,
-					ServerName: "disabled.example.com",
+					Enabled:         true,
+					ServerName:      "disabled.example.com",
 					CertificatePath: "/opt/s12ryt-ipv6/tls/server.crt",
-					KeyPath: "/opt/s12ryt-ipv6/tls/server.key",
+					KeyPath:         "/opt/s12ryt-ipv6/tls/server.key",
 				},
 			},
 		},
 		RemoteOutbounds: []runtimeconfig.PersistedRemoteOutbound{{
 			Enabled: true,
-			Config: []byte(`{"type":"vless","tag":"remote-secret","server":"remote.example.com","server_port":443,"uuid":"remote-secret-must-not-leak"}`),
+			Config:  []byte(`{"type":"vless","tag":"remote-secret","server":"remote.example.com","server_port":443,"uuid":"33333333-3333-4333-8333-333333333333"}`),
 		}},
 	}
 	renderer := &recordingQRRenderer{png: []byte("qr-png")}
 	health := &recordingNodeHealth{healthy: map[string]bool{"edge": true}}
 	service, err := NewService(ServiceOptions{
-		Source: &staticShareSource{config: config, state: state},
-		Health: health,
+		Source:     &staticShareSource{config: config, state: state},
+		Health:     health,
 		QRRenderer: renderer,
 	})
 	if err != nil {
@@ -121,16 +121,16 @@ func TestServiceBuildsProtectedDualStackShareBundle(t *testing.T) {
 func TestServiceRejectsInconsistentSnapshotsAndHealthFailures(t *testing.T) {
 	config := domain.DefaultConfig()
 	config.Nodes = []domain.Node{{
-		ID: "edge",
-		Protocol: domain.ProtocolVLESS,
-		Port: 24443,
-		Enabled: true,
+		ID:         "edge",
+		Protocol:   domain.ProtocolVLESS,
+		Port:       24443,
+		Enabled:    true,
 		Credential: domain.NodeCredential{UUID: "11111111-1111-4111-8111-111111111111"},
 	}}
 	baseState := runtimeconfig.DeploymentState{
 		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
 		Nodes: []runtimeconfig.PersistedNodeDeployment{{
-			NodeID: "edge",
+			NodeID:    "edge",
 			Listeners: []netip.Addr{netip.MustParseAddr("2001:db8:100::10")},
 		}},
 	}
@@ -144,7 +144,7 @@ func TestServiceRejectsInconsistentSnapshotsAndHealthFailures(t *testing.T) {
 			state: runtimeconfig.DeploymentState{
 				SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
 				Nodes: []runtimeconfig.PersistedNodeDeployment{{
-					NodeID: "unknown",
+					NodeID:    "unknown",
 					Listeners: []netip.Addr{netip.MustParseAddr("2001:db8:100::12")},
 				}},
 			},
