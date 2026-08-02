@@ -20,7 +20,9 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
@@ -576,6 +578,38 @@ func TestLoadApplicationWiresManagedRemoteOutboundAPI(t *testing.T) {
 	}
 }
 
+func TestLoadApplicationWiresNetworkIntegrationAPI(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	manager := &stubNetworkManager{addresses: []projectnetwork.InterfaceAddress{{
+		Interface: "eth0",
+		Prefix:    netip.MustParsePrefix("2001:db8::1/64"),
+	}}}
+	application, err := loadApplication(runtimeOptions{
+		ConfigPath:        paths.config,
+		PasswordHashPath:  paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
+		RuntimeConfigPath: paths.runtimeConfig,
+		Entropy:           bytes.NewReader(bytes.Repeat([]byte{0x5d}, 256)),
+		Clock:             func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Runtime:           &stubRuntime{},
+		ValidateRuntime:   func([]byte) error { return nil },
+		NetworkManager:    manager,
+	})
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+
+	cookie := runtimeLogin(t, application.handler)
+	request := httptest.NewRequest(http.MethodGet, "/configureme1/api/network/addresses", nil)
+	request.RemoteAddr = "198.51.100.20:43210"
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	application.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"interface":"eth0"`) {
+		t.Fatalf("network list response = %d %q, want wired manager", response.Code, response.Body.String())
+	}
+}
+
 func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	listener := &stubListener{}
@@ -721,6 +755,20 @@ func (checker *runtimePortChecker) Available(network string, port int) (bool, er
 }
 
 var _ projectnetwork.PortAvailabilityChecker = (*runtimePortChecker)(nil)
+
+type stubNetworkManager struct {
+	addresses []projectnetwork.InterfaceAddress
+}
+
+func (manager *stubNetworkManager) GlobalIPv6Addresses(context.Context) ([]projectnetwork.InterfaceAddress, error) {
+	return append([]projectnetwork.InterfaceAddress(nil), manager.addresses...), nil
+}
+
+func (manager *stubNetworkManager) Apply(_ context.Context, request networksetup.Request) (manifest.Manifest, error) {
+	return manifest.Manifest{SchemaVersion: manifest.SchemaVersion, Interface: request.Interface}, nil
+}
+
+var _ panel.NetworkManager = (*stubNetworkManager)(nil)
 
 type stubRuntime struct {
 	starts       int
