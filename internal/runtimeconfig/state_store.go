@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/importer"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/singbox"
 )
 
@@ -24,9 +25,16 @@ var persistedServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 var persistedRealityShortIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{0,16}$`)
 
 type DeploymentState struct {
-	SchemaVersion int                       `json:"schema_version"`
-	Nodes         []PersistedNodeDeployment `json:"nodes"`
-	IPv6Outbounds []netip.Addr              `json:"ipv6_outbounds"`
+	SchemaVersion   int                       `json:"schema_version"`
+	Nodes           []PersistedNodeDeployment `json:"nodes"`
+	IPv6Outbounds   []netip.Addr              `json:"ipv6_outbounds"`
+	RemoteOutbounds []PersistedRemoteOutbound `json:"remote_outbounds,omitempty"`
+	IPv4Fallback    []string                  `json:"ipv4_fallback,omitempty"`
+}
+
+type PersistedRemoteOutbound struct {
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
 }
 
 type PersistedNodeDeployment struct {
@@ -92,7 +100,72 @@ func (state DeploymentState) Validate() error {
 		}
 		seenOutbounds[address] = struct{}{}
 	}
+	_, remoteTypes, err := state.parseRemoteOutbounds()
+	if err != nil {
+		return err
+	}
+	seenFallback := make(map[string]struct{}, len(state.IPv4Fallback))
+	for _, tag := range state.IPv4Fallback {
+		if !persistedNodeIDPattern.MatchString(tag) {
+			return fmt.Errorf("unsafe IPv4 fallback tag %q", tag)
+		}
+		if _, duplicate := seenFallback[tag]; duplicate {
+			return fmt.Errorf("duplicate IPv4 fallback %q", tag)
+		}
+		seenFallback[tag] = struct{}{}
+		if tag == "direct-v4" {
+			continue
+		}
+		typeName, exists := remoteTypes[tag]
+		if !exists {
+			return fmt.Errorf("IPv4 fallback references unknown outbound %q", tag)
+		}
+		if typeName != "socks" && typeName != "http" {
+			return fmt.Errorf("IPv4 fallback %q is not a SOCKS or HTTP outbound", tag)
+		}
+	}
 	return nil
+}
+
+func (state DeploymentState) parseRemoteOutbounds() ([]RemoteOutbound, map[string]string, error) {
+	result := make([]RemoteOutbound, 0, len(state.RemoteOutbounds))
+	types := make(map[string]string, len(state.RemoteOutbounds))
+	for index, persisted := range state.RemoteOutbounds {
+		if len(persisted.Config) == 0 {
+			return nil, nil, fmt.Errorf("remote outbound %d configuration is empty", index+1)
+		}
+		var declared struct {
+			Tag string `json:"tag"`
+		}
+		if err := json.Unmarshal(persisted.Config, &declared); err != nil {
+			return nil, nil, fmt.Errorf("remote outbound %d configuration is invalid: %w", index+1, err)
+		}
+		if !persistedNodeIDPattern.MatchString(declared.Tag) || reservedRemoteOutboundTag(declared.Tag) {
+			return nil, nil, fmt.Errorf("unsafe remote outbound tag %q", declared.Tag)
+		}
+		imported, err := importer.Import(persisted.Config, importer.Options{AllowIPv4Proxy: true})
+		if err != nil {
+			return nil, nil, fmt.Errorf("validate remote outbound %q: %w", declared.Tag, err)
+		}
+		if len(imported) != 1 || imported[0].Tag != declared.Tag {
+			return nil, nil, fmt.Errorf("remote outbound %q must contain one matching canonical configuration", declared.Tag)
+		}
+		if _, duplicate := types[declared.Tag]; duplicate {
+			return nil, nil, fmt.Errorf("duplicate remote outbound tag %q", declared.Tag)
+		}
+		types[declared.Tag] = imported[0].Type
+		result = append(result, RemoteOutbound{
+			Tag:     declared.Tag,
+			Type:    imported[0].Type,
+			Enabled: persisted.Enabled,
+			Config:  cloneOutboundMap(imported[0].Raw),
+		})
+	}
+	return result, types, nil
+}
+
+func reservedRemoteOutboundTag(tag string) bool {
+	return tag == "direct-v4" || tag == "select-ipv4" || strings.HasPrefix(tag, "direct-v6-") || strings.HasPrefix(tag, "rotate-")
 }
 
 func (node PersistedNodeDeployment) validate() error {
@@ -180,10 +253,16 @@ func (state DeploymentState) Resolve(config domain.Config) (Input, error) {
 	if err := state.Validate(); err != nil {
 		return Input{}, fmt.Errorf("validate deployment state: %w", err)
 	}
+	remoteOutbounds, _, err := state.parseRemoteOutbounds()
+	if err != nil {
+		return Input{}, fmt.Errorf("resolve remote outbounds: %w", err)
+	}
 	input := Input{
-		Config:        config,
-		Deployments:   make([]NodeDeployment, 0, len(state.Nodes)),
-		IPv6Outbounds: append([]netip.Addr(nil), state.IPv6Outbounds...),
+		Config:          config,
+		Deployments:     make([]NodeDeployment, 0, len(state.Nodes)),
+		IPv6Outbounds:   append([]netip.Addr(nil), state.IPv6Outbounds...),
+		RemoteOutbounds: remoteOutbounds,
+		IPv4Fallback:    append([]string(nil), state.IPv4Fallback...),
 	}
 	for _, persisted := range state.Nodes {
 		input.Deployments = append(input.Deployments, persisted.toRuntimeDeployment())
@@ -192,6 +271,14 @@ func (state DeploymentState) Resolve(config domain.Config) (Input, error) {
 		return Input{}, fmt.Errorf("resolve deployment state: %w", err)
 	}
 	return input, nil
+}
+
+func cloneOutboundMap(input map[string]any) map[string]any {
+	result := make(map[string]any, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
 }
 
 func (node PersistedNodeDeployment) toRuntimeDeployment() NodeDeployment {

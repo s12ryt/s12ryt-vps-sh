@@ -10,9 +10,18 @@ import (
 )
 
 type Input struct {
-	Config        domain.Config
-	Deployments   []NodeDeployment
-	IPv6Outbounds []netip.Addr
+	Config          domain.Config
+	Deployments     []NodeDeployment
+	IPv6Outbounds   []netip.Addr
+	RemoteOutbounds []RemoteOutbound
+	IPv4Fallback    []string
+}
+
+type RemoteOutbound struct {
+	Tag     string
+	Type    string
+	Enabled bool
+	Config  map[string]any
 }
 
 type NodeDeployment struct {
@@ -68,16 +77,27 @@ func CompileServerConfig(input Input) ([]byte, error) {
 	resolvedOutbounds := resolveIPv6Outbounds(input.IPv6Outbounds, enabled, deployments)
 	var routingPlan *topology.Plan
 	if len(enabled) > 0 {
-		candidates := make([]topology.OutboundCandidate, 0, len(resolvedOutbounds))
+		candidates := make([]topology.OutboundCandidate, 0, len(resolvedOutbounds)+len(input.RemoteOutbounds))
 		for index := range resolvedOutbounds {
 			candidates = append(candidates, topology.OutboundCandidate{
 				Tag:  fmt.Sprintf("direct-v6-%d", index+1),
 				Kind: topology.CandidateDirectIPv6,
 			})
 		}
+		for _, outbound := range input.RemoteOutbounds {
+			if outbound.Enabled {
+				candidates = append(candidates, topology.OutboundCandidate{
+					Tag:  outbound.Tag,
+					Kind: topology.CandidateRemoteProxy,
+				})
+			}
+		}
 		var ipv4Candidates []string
 		if input.Config.Routing.Mode == domain.RoutingModeVPSIPv4 {
-			ipv4Candidates = []string{"direct-v4"}
+			ipv4Candidates = append([]string(nil), input.IPv4Fallback...)
+			if len(ipv4Candidates) == 0 {
+				ipv4Candidates = []string{"direct-v4"}
+			}
 		}
 		plan, err := topology.BuildPlan(topology.Input{
 			Config:             input.Config,
@@ -91,10 +111,19 @@ func CompileServerConfig(input Input) ([]byte, error) {
 	}
 
 	return singbox.GenerateServerConfig(singbox.ServerInput{
-		Nodes:         serverNodes,
-		IPv6Outbounds: resolvedOutbounds,
-		RoutingPlan:   routingPlan,
+		Nodes:           serverNodes,
+		IPv6Outbounds:   resolvedOutbounds,
+		RemoteOutbounds: remoteOutboundMaps(input.RemoteOutbounds),
+		RoutingPlan:     routingPlan,
 	})
+}
+
+func remoteOutboundMaps(input []RemoteOutbound) []map[string]any {
+	result := make([]map[string]any, 0, len(input))
+	for _, outbound := range input {
+		result = append(result, cloneOutboundMap(outbound.Config))
+	}
+	return result
 }
 
 func resolveIPv6Outbounds(

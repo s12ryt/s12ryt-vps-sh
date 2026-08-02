@@ -24,9 +24,10 @@ const (
 )
 
 type ServerInput struct {
-	Nodes         []InboundNode
-	IPv6Outbounds []netip.Addr
-	RoutingPlan   *topology.Plan
+	Nodes           []InboundNode
+	IPv6Outbounds   []netip.Addr
+	RemoteOutbounds []map[string]any
+	RoutingPlan     *topology.Plan
 }
 
 type InboundNode struct {
@@ -121,6 +122,9 @@ func GenerateServerConfig(input ServerInput) ([]byte, error) {
 			"inet6_bind_address": address.String(),
 		})
 	}
+	if err := appendRemoteOutbounds(&config, input.RemoteOutbounds); err != nil {
+		return nil, fmt.Errorf("append remote outbounds: %w", err)
+	}
 	if input.RoutingPlan != nil {
 		if err := applyRoutingPlan(&config, input.Nodes, *input.RoutingPlan); err != nil {
 			return nil, fmt.Errorf("apply routing plan: %w", err)
@@ -132,6 +136,84 @@ func GenerateServerConfig(input ServerInput) ([]byte, error) {
 		return nil, fmt.Errorf("marshal sing-box configuration: %w", err)
 	}
 	return payload, nil
+}
+
+func appendRemoteOutbounds(config *serverConfig, input []map[string]any) error {
+	available := outboundTags(config.Outbounds)
+	for index, source := range input {
+		outbound, err := cloneRemoteOutbound(source)
+		if err != nil {
+			return fmt.Errorf("remote outbound %d: %w", index+1, err)
+		}
+		typeName, _ := outbound["type"].(string)
+		if !supportedRemoteOutboundType(typeName) {
+			return fmt.Errorf("remote outbound %d has unsupported type %q", index+1, typeName)
+		}
+		tag, _ := outbound["tag"].(string)
+		if !nodeIDPattern.MatchString(tag) {
+			return fmt.Errorf("remote outbound %d has an unsafe tag", index+1)
+		}
+		if _, duplicate := available[tag]; duplicate {
+			return fmt.Errorf("remote outbound tag %q conflicts with another outbound", tag)
+		}
+		server, _ := outbound["server"].(string)
+		if strings.TrimSpace(server) == "" {
+			return fmt.Errorf("remote outbound %q requires a server", tag)
+		}
+		if !validRemoteServerPort(outbound["server_port"]) {
+			return fmt.Errorf("remote outbound %q has an invalid server port", tag)
+		}
+		available[tag] = struct{}{}
+		config.Outbounds = append(config.Outbounds, outbound)
+	}
+	return nil
+}
+
+func cloneRemoteOutbound(input map[string]any) (map[string]any, error) {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("encode configuration: %w", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	decoder.UseNumber()
+	var output map[string]any
+	if err := decoder.Decode(&output); err != nil {
+		return nil, fmt.Errorf("decode configuration: %w", err)
+	}
+	return output, nil
+}
+
+func supportedRemoteOutboundType(typeName string) bool {
+	switch typeName {
+	case "vless", "vmess", "hysteria2", "tuic", "socks", "anytls", "shadowsocks", "http":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRemoteServerPort(value any) bool {
+	var port int64
+	switch typed := value.(type) {
+	case int:
+		port = int64(typed)
+	case int64:
+		port = typed
+	case float64:
+		port = int64(typed)
+		if float64(port) != typed {
+			return false
+		}
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return false
+		}
+		port = parsed
+	default:
+		return false
+	}
+	return port >= 1 && port <= 65535
 }
 
 func applyRoutingPlan(config *serverConfig, nodes []InboundNode, plan topology.Plan) error {
