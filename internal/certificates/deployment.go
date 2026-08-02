@@ -37,12 +37,12 @@ type DeploymentFile struct {
 }
 
 type DeploymentPlan struct {
-	CertificatePath     string
-	PrivateKeyPath      string
-	FingerprintSHA256  string
-	Files               map[string]DeploymentFile
-	ChallengeAddress    string
-	RenewBefore         time.Duration
+	CertificatePath      string
+	PrivateKeyPath       string
+	FingerprintSHA256    string
+	Files                map[string]DeploymentFile
+	ChallengeAddress     string
+	RenewBefore          time.Duration
 	RenewalFailurePolicy string
 }
 
@@ -83,8 +83,8 @@ func buildSelfSignedDeployment(options DeploymentOptions) (DeploymentPlan, error
 	certificatePath := ProjectTLSDirectory + "/server.crt"
 	privateKeyPath := ProjectTLSDirectory + "/server.key"
 	return DeploymentPlan{
-		CertificatePath:    certificatePath,
-		PrivateKeyPath:     privateKeyPath,
+		CertificatePath:   certificatePath,
+		PrivateKeyPath:    privateKeyPath,
 		FingerprintSHA256: material.FingerprintSHA256,
 		Files: map[string]DeploymentFile{
 			certificatePath: {Mode: 0o644, Content: material.CertificatePEM},
@@ -134,18 +134,18 @@ func buildExternalDeployment(options DeploymentOptions) (DeploymentPlan, error) 
 	}
 	if options.Mode == DeploymentExternalReference {
 		return DeploymentPlan{
-			CertificatePath:    options.CertificatePath,
-			PrivateKeyPath:     options.PrivateKeyPath,
+			CertificatePath:   options.CertificatePath,
+			PrivateKeyPath:    options.PrivateKeyPath,
 			FingerprintSHA256: info.FingerprintSHA256,
-			Files:              map[string]DeploymentFile{},
+			Files:             map[string]DeploymentFile{},
 		}, nil
 	}
 
 	certificatePath := ProjectTLSDirectory + "/server.crt"
 	privateKeyPath := ProjectTLSDirectory + "/server.key"
 	return DeploymentPlan{
-		CertificatePath:    certificatePath,
-		PrivateKeyPath:     privateKeyPath,
+		CertificatePath:   certificatePath,
+		PrivateKeyPath:    privateKeyPath,
 		FingerprintSHA256: info.FingerprintSHA256,
 		Files: map[string]DeploymentFile{
 			certificatePath: {Mode: 0o644, Content: certificatePEM},
