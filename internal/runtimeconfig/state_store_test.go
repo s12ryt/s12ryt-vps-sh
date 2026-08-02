@@ -114,6 +114,39 @@ func TestDeploymentStateStoreRejectsUnknownJSONFields(t *testing.T) {
 	}
 }
 
+func TestDeploymentStateStoreRejectsUnprotectedAndLinkedState(t *testing.T) {
+	for name, arrange := range map[string]func(*testing.T, string){
+		"group readable": func(t *testing.T, path string) {
+			t.Helper()
+			if err := os.WriteFile(path, []byte(`{"schema_version":1,"nodes":[],"ipv6_outbounds":[]}`), 0o644); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+		},
+		"symbolic link": func(t *testing.T, path string) {
+			t.Helper()
+			target := path + ".target"
+			if err := os.WriteFile(target, []byte(`{"schema_version":1,"nodes":[],"ipv6_outbounds":[]}`), 0o600); err != nil {
+				t.Fatalf("WriteFile(target) error = %v", err)
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatalf("Symlink() error = %v", err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "runtime.json")
+			arrange(t, path)
+			stateStore, err := NewDeploymentStateStore(path)
+			if err != nil {
+				t.Fatalf("NewDeploymentStateStore() error = %v", err)
+			}
+			if _, err := stateStore.Load(); err == nil {
+				t.Fatal("Load() error = nil, want protected regular file rejection")
+			}
+		})
+	}
+}
+
 func TestDeploymentStateValidationRejectsUnsafeState(t *testing.T) {
 	for name, mutate := range map[string]func(*DeploymentState){
 		"schema":  func(state *DeploymentState) { state.SchemaVersion = 2 },
