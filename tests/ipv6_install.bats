@@ -260,6 +260,10 @@ EOF
         PATH="$PATH" \
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=systemd \
+        S12RYT_MACHINE_ARCH=x86_64 \
         /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
 
     [ "$status" -eq 0 ]
@@ -269,6 +273,10 @@ EOF
     run /usr/bin/env \
         PATH="$PATH" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=systemd \
+        S12RYT_MACHINE_ARCH=x86_64 \
         /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
 
     [ "$status" -ne 0 ]

@@ -347,7 +347,8 @@ install_verified_ipv6_bundle() {
         printf '錯誤：IPv6 專案 binary 已存在；請使用更新流程。\n' >&2
         return 1
     fi
-    if [[ -e "${project_root}/config/config.json" || -e "${project_root}/secrets/password.hash" ]]; then
+    if [[ -e "${project_root}/config/config.json" || -e "${project_root}/secrets/password.hash" ||
+        -e "${project_root}/secrets/management.password" ]]; then
         had_state=1
     fi
 
@@ -383,13 +384,15 @@ install_verified_ipv6_bundle() {
             return 1
         fi
     fi
-    if [[ ! -f "${project_root}/config/config.json" || ! -f "${project_root}/secrets/password.hash" ]]; then
+    if [[ ! -f "${project_root}/config/config.json" || ! -f "${project_root}/secrets/password.hash" ||
+        ! -f "${project_root}/secrets/management.password" ]]; then
         cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
         printf '錯誤：面板初始化狀態不完整。\n' >&2
         return 1
     fi
     chmod 0700 "${project_root}/config" "${project_root}/secrets" || return 1
-    chmod 0600 "${project_root}/config/config.json" "${project_root}/secrets/password.hash" || return 1
+    chmod 0600 "${project_root}/config/config.json" "${project_root}/secrets/password.hash" \
+        "${project_root}/secrets/management.password" || return 1
 
     if [[ "$init_system" == "systemd" ]]; then
         unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
@@ -443,6 +446,19 @@ install_ipv6_project_release() {
     return "$install_status"
 }
 
+configure_ipv6_project_state() {
+    local project_root panel_binary
+
+    check_ipv6_project_preflight || return 1
+    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
+    panel_binary="${project_root}/bin/s12ryt-ipv6"
+    if [[ ! -x "$panel_binary" ]]; then
+        printf '錯誤：IPv6 管理面板尚未安裝。\n' >&2
+        return 1
+    fi
+    S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" status
+}
+
 main() {
     case "${1:-}" in
         preflight | '')
@@ -462,8 +478,15 @@ main() {
             fi
             install_ipv6_project_release
             ;;
+        configure)
+            if (($# != 1)); then
+                printf '用法：%s configure\n' "${0##*/}" >&2
+                return 1
+            fi
+            configure_ipv6_project_state
+            ;;
         *)
-            printf '用法：%s [preflight|fetch DESTINATION ARCH|install]\n' "${0##*/}" >&2
+            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|configure]\n' "${0##*/}" >&2
             return 1
             ;;
     esac
