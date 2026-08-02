@@ -2,7 +2,9 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -87,6 +89,49 @@ func TestNodeCreateRequiresCSRFConfirmationAndStrictInput(t *testing.T) {
 	}
 	if strings.Contains(created.Body.String(), `"credential"`) || strings.Contains(created.Body.String(), manager.config.Nodes[1].Credential.UUID) {
 		t.Fatalf("create response leaked credential: %s", created.Body.String())
+	}
+}
+
+func TestNodeCreateChecksACMEHTTPPortBeforeManagedMutation(t *testing.T) {
+	payload := []byte(`{"id":"acme-vless","protocol":"vless","port":25555,"enabled":true,"deployment":{"listeners":["2001:db8::10"],"tls":{"enabled":true,"server_name":"node.example.com","acme":{"domains":["node.example.com"],"data_directory":"/opt/s12ryt-ipv6/tls/acme","default_server_name":"node.example.com","email":"admin@example.com","provider":"letsencrypt"}},"transport":{}}}`)
+
+	manager := newFakeNodeManager()
+	server := newNodeAPIServer(t, manager)
+	checker := &fakeACMEChallengeChecker{}
+	server.acmeChallengeChecker = checker
+	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
+
+	checker.available = false
+	occupied := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", payload)
+	if occupied.Code != http.StatusConflict || len(manager.createCalls) != 0 {
+		t.Fatalf("occupied response = %d, calls = %#v", occupied.Code, manager.createCalls)
+	}
+
+	checker.err = errors.New("bind probe failed")
+	failed := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", payload)
+	if failed.Code != http.StatusUnprocessableEntity || len(manager.createCalls) != 0 {
+		t.Fatalf("failed probe response = %d, calls = %#v", failed.Code, manager.createCalls)
+	}
+
+	checker.err = nil
+	checker.available = true
+	created := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", payload)
+	if created.Code != http.StatusCreated || len(manager.createCalls) != 1 || checker.calls != 3 {
+		t.Fatalf("created response = %d, calls = %#v, checker calls = %d", created.Code, manager.createCalls, checker.calls)
+	}
+	if manager.createCalls[0].Deployment.TLS.ACME == nil {
+		t.Fatal("ACME deployment was not passed to node manager")
+	}
+
+	staticManager := newFakeNodeManager()
+	staticServer := newNodeAPIServer(t, staticManager)
+	staticChecker := &fakeACMEChallengeChecker{available: false}
+	staticServer.acmeChallengeChecker = staticChecker
+	staticCookie, staticCSRF := authenticatedSession(t, staticServer, "198.51.100.8")
+	staticPayload := []byte(`{"id":"static-vless","protocol":"vless","port":25556,"enabled":true,"deployment":{"listeners":["2001:db8::11"],"tls":{"enabled":true,"server_name":"node.example.com","certificate_path":"/opt/s12ryt-ipv6/tls/server.crt","key_path":"/opt/s12ryt-ipv6/tls/server.key"},"transport":{}}}`)
+	staticCreated := performNodeRequest(t, staticServer, http.MethodPost, "/api/nodes", staticCookie, staticCSRF, "apply", staticPayload)
+	if staticCreated.Code != http.StatusCreated || staticChecker.calls != 0 {
+		t.Fatalf("static TLS response = %d, checker calls = %d", staticCreated.Code, staticChecker.calls)
 	}
 }
 
@@ -178,6 +223,17 @@ type fakeNodeManager struct {
 	updateCalls  []nodes.UpdateInput
 	deleteCalls  []string
 	replaceCalls []domain.Config
+}
+
+type fakeACMEChallengeChecker struct {
+	available bool
+	err       error
+	calls     int
+}
+
+func (checker *fakeACMEChallengeChecker) Available(context.Context) (bool, error) {
+	checker.calls++
+	return checker.available, checker.err
 }
 
 func newFakeNodeManager() *fakeNodeManager {
