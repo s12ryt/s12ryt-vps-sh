@@ -72,6 +72,68 @@ func (manager *IntegrationManager) Apply(ctx context.Context, candidate Manifest
 	return nil
 }
 
+func (manager *IntegrationManager) Replace(ctx context.Context, candidate Manifest) error {
+	if ctx == nil {
+		return errors.New("integration replacement context is required")
+	}
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("validate integration replacement: %w", err)
+	}
+	current, err := manager.repository.Load()
+	if err != nil {
+		return fmt.Errorf("load current integration manifest: %w", err)
+	}
+	if err := current.Validate(); err != nil {
+		return fmt.Errorf("validate current integration manifest: %w", err)
+	}
+	currentGroups, err := buildIntegrationCommandGroups(current)
+	if err != nil {
+		return fmt.Errorf("build current integration commands: %w", err)
+	}
+	candidateGroups, err := buildIntegrationCommandGroups(candidate)
+	if err != nil {
+		return fmt.Errorf("build replacement integration commands: %w", err)
+	}
+
+	cleanupContext := context.WithoutCancel(ctx)
+	removedCurrent := make([]integrationCommandGroup, 0, len(currentGroups))
+	for groupIndex := len(currentGroups) - 1; groupIndex >= 0; groupIndex-- {
+		group := currentGroups[groupIndex]
+		removedCurrent = append(removedCurrent, group)
+		for _, command := range group.rollback {
+			if err := manager.run(ctx, command); err != nil {
+				cleanupErr := fmt.Errorf("remove current integration command: %w", err)
+				return errors.Join(cleanupErr, manager.restoreRemovedGroups(cleanupContext, removedCurrent))
+			}
+		}
+	}
+
+	attemptedCandidate := make([]integrationCommandGroup, 0, len(candidateGroups))
+	for _, group := range candidateGroups {
+		attemptedCandidate = append(attemptedCandidate, group)
+		for _, command := range group.apply {
+			if err := manager.run(ctx, command); err != nil {
+				applyErr := fmt.Errorf("apply replacement integration command: %w", err)
+				return errors.Join(
+					applyErr,
+					manager.rollback(cleanupContext, attemptedCandidate),
+					manager.applyGroups(cleanupContext, currentGroups),
+				)
+			}
+		}
+	}
+	if err := manager.repository.Save(candidate); err != nil {
+		saveErr := fmt.Errorf("save replacement integration manifest: %w", err)
+		return errors.Join(
+			saveErr,
+			manager.rollback(cleanupContext, attemptedCandidate),
+			manager.applyGroups(cleanupContext, currentGroups),
+			manager.restoreManifest(current),
+		)
+	}
+	return nil
+}
+
 func (manager *IntegrationManager) Restore(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("integration restore context is required")
@@ -145,6 +207,37 @@ func (manager *IntegrationManager) rollback(ctx context.Context, groups []integr
 		}
 	}
 	return errors.Join(rollbackErrors...)
+}
+
+func (manager *IntegrationManager) restoreRemovedGroups(ctx context.Context, groups []integrationCommandGroup) error {
+	var restoreErrors []error
+	for groupIndex := len(groups) - 1; groupIndex >= 0; groupIndex-- {
+		for _, command := range groups[groupIndex].apply {
+			if err := manager.run(ctx, command); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("restore current integration command: %w", err))
+			}
+		}
+	}
+	return errors.Join(restoreErrors...)
+}
+
+func (manager *IntegrationManager) applyGroups(ctx context.Context, groups []integrationCommandGroup) error {
+	var applyErrors []error
+	for _, group := range groups {
+		for _, command := range group.apply {
+			if err := manager.run(ctx, command); err != nil {
+				applyErrors = append(applyErrors, fmt.Errorf("restore current integration command: %w", err))
+			}
+		}
+	}
+	return errors.Join(applyErrors...)
+}
+
+func (manager *IntegrationManager) restoreManifest(current Manifest) error {
+	if err := manager.repository.Save(current); err != nil {
+		return fmt.Errorf("restore current integration manifest: %w", err)
+	}
+	return nil
 }
 
 func (manager *IntegrationManager) run(ctx context.Context, command projectnetwork.Command) error {
