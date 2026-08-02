@@ -122,6 +122,80 @@ func TestAggregateSubscriptionContainsOnlyEnabledHealthyLocalNodes(t *testing.T)
 	}
 }
 
+func TestClientIPv4ModeBuildsCompleteSplitRoutingConfiguration(t *testing.T) {
+	node := completeNode(domain.ProtocolVLESS, 25555)
+	input := Input{
+		LocalNodes: []LocalNode{node},
+		RoutingMode: domain.RoutingModeClientIPv4,
+	}
+
+	bundle, err := GenerateBundle(input)
+	if err != nil {
+		t.Fatalf("GenerateBundle() error = %v", err)
+	}
+	artifact := bundle.Nodes[0]
+	if len(artifact.FullClientJSON) == 0 {
+		t.Fatal("mode 1 full client JSON is empty")
+	}
+	if artifact.FullClientBase64 == "" {
+		t.Fatal("mode 1 full client Base64 is empty")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(artifact.FullClientBase64)
+	if err != nil {
+		t.Fatalf("full client configuration is not standard Base64: %v", err)
+	}
+	if string(decoded) != string(artifact.FullClientJSON) {
+		t.Fatal("full client Base64 does not decode to the JSON payload")
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(artifact.FullClientJSON, &config); err != nil {
+		t.Fatalf("full client JSON is invalid: %v", err)
+	}
+	inbounds := config["inbounds"].([]any)
+	tun := inbounds[0].(map[string]any)
+	if tun["type"] != "tun" || tun["tag"] != "tun-in" || tun["auto_route"] != true || tun["strict_route"] != true {
+		t.Fatalf("TUN inbound = %#v", tun)
+	}
+	outbounds := config["outbounds"].([]any)
+	if outbounds[0].(map[string]any)["tag"] != "proxy" || outbounds[1].(map[string]any)["tag"] != "direct" {
+		t.Fatalf("full client outbounds = %#v", outbounds)
+	}
+	route := config["route"].(map[string]any)
+	rules := route["rules"].([]any)
+	if len(rules) != 2 {
+		t.Fatalf("route rules = %#v, want two family rules", rules)
+	}
+	if rules[0].(map[string]any)["ip_version"] != float64(4) || rules[0].(map[string]any)["outbound"] != "direct" {
+		t.Fatalf("IPv4 split rule = %#v", rules[0])
+	}
+	if rules[1].(map[string]any)["ip_version"] != float64(6) || rules[1].(map[string]any)["outbound"] != "proxy" {
+		t.Fatalf("IPv6 split rule = %#v", rules[1])
+	}
+	if !strings.Contains(artifact.SplitRoutingWarning, "URI") || !strings.Contains(artifact.SplitRoutingWarning, "QR") ||
+		!strings.Contains(artifact.SplitRoutingWarning, "分流規則") {
+		t.Fatalf("split routing warning = %q", artifact.SplitRoutingWarning)
+	}
+}
+
+func TestOtherModesDoNotAdvertiseClientSideSplitRouting(t *testing.T) {
+	for _, mode := range []domain.RoutingMode{"", domain.RoutingModeVPSIPv4, domain.RoutingModeIPv6Only} {
+		t.Run(string(mode), func(t *testing.T) {
+			bundle, err := GenerateBundle(Input{
+				LocalNodes:  []LocalNode{completeNode(domain.ProtocolVLESS, 25556)},
+				RoutingMode: mode,
+			})
+			if err != nil {
+				t.Fatalf("GenerateBundle() error = %v", err)
+			}
+			artifact := bundle.Nodes[0]
+			if len(artifact.FullClientJSON) != 0 || artifact.FullClientBase64 != "" || artifact.SplitRoutingWarning != "" {
+				t.Fatalf("mode %q unexpectedly produced client split routing output: %#v", mode, artifact)
+			}
+		})
+	}
+}
+
 func TestGenerateBundleRejectsUnsafeOrIncompleteLocalNodes(t *testing.T) {
 	base := completeNode(domain.ProtocolVLESS, 26001)
 	tests := []struct {
