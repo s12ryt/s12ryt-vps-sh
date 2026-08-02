@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	projectsystem "github.com/s12ryt/s12ryt-vps-sh/internal/system"
 )
 
@@ -73,6 +74,107 @@ func TestIntegrationManagerRollsBackAttemptedGroupsWhenApplyOrSaveFails(t *testi
 				"nft delete table inet s12ryt-ipv6",
 				"ip -6 rule del from 2001:db8:100::11/128 lookup 42001 priority 22001",
 				"ip -6 addr del 2001:db8:100::10/64 dev eth0",
+			)
+		})
+	}
+}
+
+func TestIntegrationManagerReplacesExistingManifestTransactionally(t *testing.T) {
+	events := []string{}
+	current := manifestFixture()
+	repository := &recordingManifestRepository{current: &current, events: &events}
+	runner := &recordingSystemRunner{events: &events}
+	manager, err := NewIntegrationManager(repository, runner)
+	if err != nil {
+		t.Fatalf("NewIntegrationManager() error = %v", err)
+	}
+	candidate := replacementManifestFixture()
+	if err := manager.Replace(context.Background(), candidate); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	if repository.current == nil || repository.current.Addresses[0] != candidate.Addresses[0] {
+		t.Fatalf("saved replacement manifest = %#v", repository.current)
+	}
+	assertEventOrder(t, events,
+		"load",
+		"nft delete table inet s12ryt-ipv6",
+		"ip -6 route flush table 42000",
+		"ip -6 addr del 2001:db8:100::10/64 dev eth0",
+		"ip -6 addr add 2001:db8:200::20/64 dev eth0",
+		"ip -6 route replace default via fe80::2 dev eth0 src 2001:db8:200::20 table 42000",
+		"ufw allow proto tcp from 192.0.2.0/24 to any port 35555 comment s12ryt-ipv6",
+		"save",
+	)
+	if eventEquals(events, "delete") {
+		t.Fatalf("replacement deleted protected manifest: %#v", events)
+	}
+}
+
+func TestIntegrationManagerRestoresCurrentManifestWhenReplacementFails(t *testing.T) {
+	cleanupFailure := errors.New("old firewall cleanup failed")
+	applyFailure := errors.New("new route apply failed")
+	saveFailure := errors.New("replacement save failed")
+
+	for name, testCase := range map[string]struct {
+		failContains string
+		runnerError  error
+		saveError    error
+		want         error
+	}{
+		"old cleanup": {
+			failContains: "nft delete table inet s12ryt-ipv6",
+			runnerError:  cleanupFailure,
+			want:         cleanupFailure,
+		},
+		"new apply": {
+			failContains: "route replace default via fe80::2",
+			runnerError:  applyFailure,
+			want:         applyFailure,
+		},
+		"manifest save": {
+			saveError: saveFailure,
+			want:      saveFailure,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			events := []string{}
+			current := manifestFixture()
+			repository := &recordingManifestRepository{
+				current: &current,
+				events:  &events,
+				saveErr: testCase.saveError,
+			}
+			runner := &recordingSystemRunner{
+				events:       &events,
+				failContains: testCase.failContains,
+				failure:      testCase.runnerError,
+			}
+			manager, err := NewIntegrationManager(repository, runner)
+			if err != nil {
+				t.Fatalf("NewIntegrationManager() error = %v", err)
+			}
+			err = manager.Replace(context.Background(), replacementManifestFixture())
+			if !errors.Is(err, testCase.want) {
+				t.Fatalf("Replace() error = %v, want errors.Is(%v)", err, testCase.want)
+			}
+			if repository.current == nil || repository.current.Addresses[0] != current.Addresses[0] {
+				t.Fatalf("failed replacement changed protected manifest: %#v", repository.current)
+			}
+			if eventEquals(events, "delete") {
+				t.Fatalf("failed replacement deleted protected manifest: %#v", events)
+			}
+
+			if name == "old cleanup" {
+				if eventContains(events, "2001:db8:200::20") || eventEquals(events, "save") {
+					t.Fatalf("old cleanup failure started replacement: %#v", events)
+				}
+				return
+			}
+			assertEventOrder(t, events,
+				"ip -6 addr del 2001:db8:200::20/64 dev eth0",
+				"ip -6 addr add 2001:db8:100::10/64 dev eth0",
+				"ip -6 route replace default via fe80::1 dev eth0 src 2001:db8:100::10 table 42000",
+				"nft add table inet s12ryt-ipv6",
 			)
 		})
 	}
@@ -216,8 +318,14 @@ func TestIntegrationManagerRejectsUnsafeInputsBeforeSideEffects(t *testing.T) {
 	if err := manager.Apply(context.Background(), invalid); err == nil {
 		t.Fatal("Apply(invalid) error = nil")
 	}
+	if err := manager.Replace(context.Background(), invalid); err == nil {
+		t.Fatal("Replace(invalid) error = nil")
+	}
 	if len(events) != 0 {
 		t.Fatalf("invalid manifest caused side effects: %#v", events)
+	}
+	if err := manager.Replace(nil, manifestFixture()); err == nil {
+		t.Fatal("Replace(nil context) error = nil")
 	}
 	if err := manager.Restore(nil); err == nil {
 		t.Fatal("Restore(nil context) error = nil")
@@ -318,4 +426,23 @@ func eventEquals(events []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func replacementManifestFixture() Manifest {
+	return Manifest{
+		SchemaVersion: SchemaVersion,
+		Interface:     "eth0",
+		Prefix:        "2001:db8:200::/64",
+		Gateway:       "fe80::2",
+		Addresses:     []string{"2001:db8:200::20", "2001:db8:200::21"},
+		Firewall: FirewallManifest{
+			Backend:      projectnetwork.FirewallUFW,
+			PanelPort:    35555,
+			AllowedCIDRs: []string{"192.0.2.0/24", "2001:db8:ffff::/64"},
+			NodePorts: []PortManifest{
+				{Port: 25001, Protocol: "tcp"},
+				{Port: 25002, Protocol: "udp"},
+			},
+		},
+	}
 }
