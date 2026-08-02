@@ -28,6 +28,7 @@ import (
 
 const defaultConfigPath = "/opt/s12ryt-ipv6/config/config.json"
 const defaultPasswordHashPath = "/opt/s12ryt-ipv6/secrets/password.hash"
+const defaultRuntimeStatePath = "/opt/s12ryt-ipv6/state/runtime.json"
 const defaultProjectRoot = "/opt/s12ryt-ipv6"
 const shutdownTimeout = 10 * time.Second
 
@@ -39,6 +40,7 @@ type managedHTTPServer interface {
 type runtimeOptions struct {
 	ConfigPath             string
 	PasswordHashPath       string
+	RuntimeStatePath       string
 	Entropy                io.Reader
 	Clock                  func() time.Time
 	PortChecker            projectnetwork.PortAvailabilityChecker
@@ -122,6 +124,7 @@ func runCommand(arguments []string, options commandOptions) error {
 		return runApplication(options.Context, runtimeOptions{
 			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
 			PasswordHashPath: filepath.Join(options.ProjectRoot, "secrets", "password.hash"),
+			RuntimeStatePath: filepath.Join(options.ProjectRoot, "state", "runtime.json"),
 			Entropy:          options.Entropy,
 		})
 	}
@@ -361,6 +364,17 @@ func loadApplication(options runtimeOptions) (application, error) {
 	if err != nil {
 		return application{}, fmt.Errorf("載入面板設定：%w", err)
 	}
+	runtimeStateStore, err := runtimeconfig.NewDeploymentStateStore(options.RuntimeStatePath)
+	if err != nil {
+		return application{}, fmt.Errorf("建立執行狀態儲存：%w", err)
+	}
+	runtimeState, err := runtimeStateStore.Load()
+	if err != nil {
+		return application{}, fmt.Errorf("載入執行狀態：%w", err)
+	}
+	if _, err := runtimeState.Resolve(config); err != nil {
+		return application{}, fmt.Errorf("解析執行狀態：%w", err)
+	}
 	passwordHash, err := readProtectedPasswordHash(options.PasswordHashPath)
 	if err != nil {
 		return application{}, err
@@ -442,6 +456,9 @@ func withRuntimeDefaults(options runtimeOptions) runtimeOptions {
 	}
 	if options.PasswordHashPath == "" {
 		options.PasswordHashPath = defaultPasswordHashPath
+	}
+	if options.RuntimeStatePath == "" {
+		options.RuntimeStatePath = defaultRuntimeStatePath
 	}
 	if options.Entropy == nil {
 		options.Entropy = rand.Reader
