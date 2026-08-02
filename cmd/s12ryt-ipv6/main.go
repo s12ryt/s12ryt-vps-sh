@@ -547,6 +547,14 @@ func loadApplication(options runtimeOptions) (application, error) {
 			return application{}, err
 		}
 	}
+	acmeChallengeChecker := options.ACMEChallengeChecker
+	if acmeChallengeChecker == nil {
+		checker, checkerErr := certificates.NewSystemHTTP01PortChecker()
+		if checkerErr != nil {
+			return application{}, fmt.Errorf("建立 ACME HTTP-01 埠檢查器：%w", checkerErr)
+		}
+		acmeChallengeChecker = checker
+	}
 	server := panel.NewServer(panel.Options{
 		BasePath:             config.Panel.Path,
 		PasswordHash:         passwordHash,
@@ -558,7 +566,7 @@ func loadApplication(options runtimeOptions) (application, error) {
 		NodeManager:          nodeManager,
 		RemoteManager:        nodeManager,
 		NetworkManager:       networkManager,
-		ACMEChallengeChecker: options.ACMEChallengeChecker,
+		ACMEChallengeChecker: acmeChallengeChecker,
 	})
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
@@ -729,9 +737,6 @@ func withRuntimeDefaults(options runtimeOptions) runtimeOptions {
 	}
 	if options.PortAllocationAttempts == 0 {
 		options.PortAllocationAttempts = 128
-	}
-	if options.ACMEChallengeChecker == nil {
-		options.ACMEChallengeChecker = certificates.NewSystemHTTP01PortChecker()
 	}
 	if options.Listen == nil {
 		options.Listen = net.Listen
