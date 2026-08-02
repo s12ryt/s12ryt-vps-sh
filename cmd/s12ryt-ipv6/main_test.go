@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,6 +47,105 @@ func TestLoadApplicationBuildsPanelFromProtectedFiles(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte("登入 IPv6 管理面板")) {
 		t.Fatalf("panel body missing login page: %s", response.Body.String())
+	}
+}
+
+func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	result, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x35}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9]{24}$`).MatchString(result.Password) {
+		t.Fatalf("password = %q, want 24 alphanumeric characters", result.Password)
+	}
+	if !regexp.MustCompile(`^/[A-Za-z0-9]{12}$`).MatchString(result.WebPath) {
+		t.Fatalf("web path = %q, want slash and 12 alphanumeric characters", result.WebPath)
+	}
+
+	configPath := filepath.Join(projectRoot, "config", "config.json")
+	config, err := store.NewConfigStore(configPath).Load()
+	if err != nil {
+		t.Fatalf("load initialized config: %v", err)
+	}
+	if config.Panel.Path != result.WebPath || config.Panel.Port != 34456 {
+		t.Fatalf("initialized panel = %#v, result = %#v", config.Panel, result)
+	}
+
+	passwordPath := filepath.Join(projectRoot, "secrets", "password.hash")
+	info, err := os.Stat(passwordPath)
+	if err != nil {
+		t.Fatalf("stat password hash: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("password hash mode = %04o, want 0600", info.Mode().Perm())
+	}
+	encoded, err := readProtectedPasswordHash(passwordPath)
+	if err != nil {
+		t.Fatalf("read password hash: %v", err)
+	}
+	verified, err := auth.NewPasswordHasher(nil).Verify(encoded, result.Password)
+	if err != nil || !verified {
+		t.Fatalf("Verify(initial password) = %t, %v", verified, err)
+	}
+	for _, directory := range []string{filepath.Join(projectRoot, "config"), filepath.Join(projectRoot, "secrets")} {
+		info, err := os.Stat(directory)
+		if err != nil {
+			t.Fatalf("stat protected directory: %v", err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("directory %s mode = %04o, want 0700", directory, info.Mode().Perm())
+		}
+	}
+}
+
+func TestInitializeProjectRefusesToOverwriteExistingState(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	configPath := filepath.Join(projectRoot, "config", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("sentinel"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x36}, 512)),
+	})
+	if err == nil {
+		t.Fatal("initializeProject() overwrote existing state")
+	}
+	contents, readErr := os.ReadFile(configPath)
+	if readErr != nil || string(contents) != "sentinel" {
+		t.Fatalf("existing config = %q, %v", contents, readErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(projectRoot, "secrets", "password.hash")); !os.IsNotExist(statErr) {
+		t.Fatalf("initialization created password hash after refusal: %v", statErr)
+	}
+}
+
+func TestRunInitCommandPrintsBootstrapCredentialsWithoutHash(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	var output bytes.Buffer
+	err := runCommand([]string{"init"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x37}, 512)),
+		Output:      &output,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(init) error = %v", err)
+	}
+	for _, expected := range []string{"初始管理密碼：", "Web 路徑：/", "管理埠：34456"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("init output missing %q: %s", expected, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "$pbkdf2-sha256$") {
+		t.Fatalf("init output leaked password hash: %s", output.String())
 	}
 }
 
