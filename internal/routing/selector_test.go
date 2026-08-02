@@ -9,8 +9,8 @@ func TestSelectorRotatesOnlyWhenSelectingAfterInterval(t *testing.T) {
 	start := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	selector, err := NewSelector(SelectorOptions{
 		Candidates:        []string{"direct-v6-1", "direct-v6-2", "remote-1"},
-		RotationInterval: time.Hour,
-		FailureThreshold: 3,
+		RotationInterval:  time.Hour,
+		FailureThreshold:  3,
 		RecoveryThreshold: 3,
 		StartIndex:        0,
 		Now:               start,
@@ -78,8 +78,8 @@ func TestSelectorsCanStartAtStaggeredOffsets(t *testing.T) {
 	for index := range want {
 		selector, err := NewSelector(SelectorOptions{
 			Candidates:        candidates,
-			RotationInterval: time.Hour,
-			FailureThreshold: 3,
+			RotationInterval:  time.Hour,
+			FailureThreshold:  3,
 			RecoveryThreshold: 3,
 			StartIndex:        index,
 			Now:               start,
@@ -118,8 +118,8 @@ func mustSelector(t *testing.T, now time.Time) *Selector {
 	t.Helper()
 	selector, err := NewSelector(SelectorOptions{
 		Candidates:        []string{"preferred", "fallback"},
-		RotationInterval: 24 * time.Hour,
-		FailureThreshold: 3,
+		RotationInterval:  24 * time.Hour,
+		FailureThreshold:  3,
 		RecoveryThreshold: 3,
 		Now:               now,
 	})
