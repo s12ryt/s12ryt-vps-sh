@@ -58,6 +58,15 @@ type integrationCleaner interface {
 	Remove(context.Context) error
 }
 
+type integrationRestorer interface {
+	Restore(context.Context) error
+}
+
+type integrationStateManager interface {
+	integrationCleaner
+	integrationRestorer
+}
+
 type runtimeOptions struct {
 	ConfigPath                string
 	PasswordHashPath          string
@@ -96,12 +105,13 @@ type initializationResult struct {
 }
 
 type commandOptions struct {
-	ProjectRoot        string
-	Entropy            io.Reader
-	Output             io.Writer
-	Context            context.Context
-	Addresses          func() ([]netip.Addr, error)
-	IntegrationCleaner integrationCleaner
+	ProjectRoot         string
+	Entropy             io.Reader
+	Output              io.Writer
+	Context             context.Context
+	Addresses           func() ([]netip.Addr, error)
+	IntegrationCleaner  integrationCleaner
+	IntegrationRestorer integrationRestorer
 }
 
 func main() {
@@ -155,7 +165,7 @@ func runCommand(arguments []string, options commandOptions) error {
 		cleaner := options.IntegrationCleaner
 		if cleaner == nil {
 			var err error
-			cleaner, err = newIntegrationCleaner(options.ProjectRoot, options.Output)
+			cleaner, err = newIntegrationStateManager(options.ProjectRoot, options.Output)
 			if err != nil {
 				return err
 			}
@@ -164,6 +174,21 @@ func runCommand(arguments []string, options commandOptions) error {
 			return fmt.Errorf("清理專案網路整合狀態：%w", err)
 		}
 		fmt.Fprintln(options.Output, "專案網路整合狀態已清理。")
+		return nil
+	}
+	if len(arguments) == 1 && arguments[0] == "restore-system" {
+		restorer := options.IntegrationRestorer
+		if restorer == nil {
+			var err error
+			restorer, err = newIntegrationStateManager(options.ProjectRoot, options.Output)
+			if err != nil {
+				return err
+			}
+		}
+		if err := restorer.Restore(options.Context); err != nil {
+			return fmt.Errorf("恢復專案網路整合狀態：%w", err)
+		}
+		fmt.Fprintln(options.Output, "專案網路整合狀態已恢復。")
 		return nil
 	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
@@ -177,10 +202,10 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:                   options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|cleanup-system]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|restore-system|cleanup-system]")
 }
 
-func newIntegrationCleaner(projectRoot string, output io.Writer) (integrationCleaner, error) {
+func newIntegrationStateManager(projectRoot string, output io.Writer) (integrationStateManager, error) {
 	repository, err := manifest.NewStore(filepath.Join(projectRoot, "state", "integration.json"))
 	if err != nil {
 		return nil, fmt.Errorf("建立系統整合狀態儲存：%w", err)
