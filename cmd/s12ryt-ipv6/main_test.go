@@ -433,6 +433,42 @@ func TestRunCleanupSystemCommandPreservesCleanupError(t *testing.T) {
 	}
 }
 
+func TestRunRestoreSystemCommandDelegatesToIntegrationRestorer(t *testing.T) {
+	contextKey := struct{}{}
+	ctx := context.WithValue(context.Background(), contextKey, "restore")
+	restorer := &stubIntegrationRestorer{}
+	var output bytes.Buffer
+
+	err := runCommand([]string{"restore-system"}, commandOptions{
+		Context:             ctx,
+		Output:              &output,
+		IntegrationRestorer: restorer,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(restore-system) error = %v", err)
+	}
+	if restorer.calls != 1 || restorer.contextValue != "restore" {
+		t.Fatalf("restorer calls = %d, context value = %q", restorer.calls, restorer.contextValue)
+	}
+	if output.String() != "專案網路整合狀態已恢復。\n" {
+		t.Fatalf("restore output = %q", output.String())
+	}
+}
+
+func TestRunRestoreSystemCommandPreservesRestoreError(t *testing.T) {
+	sentinel := errors.New("restore failed")
+	restorer := &stubIntegrationRestorer{err: sentinel}
+
+	err := runCommand([]string{"restore-system"}, commandOptions{
+		Context:             context.Background(),
+		Output:              &bytes.Buffer{},
+		IntegrationRestorer: restorer,
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("runCommand(restore-system) error = %v, want sentinel", err)
+	}
+}
+
 func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o644)
 	_, err := loadApplication(runtimeOptions{
@@ -836,6 +872,20 @@ type stubIntegrationCleaner struct {
 	calls        int
 	contextValue string
 	err          error
+}
+
+type stubIntegrationRestorer struct {
+	calls        int
+	contextValue string
+	err          error
+}
+
+func (restorer *stubIntegrationRestorer) Restore(ctx context.Context) error {
+	restorer.calls++
+	if value, ok := ctx.Value(struct{}{}).(string); ok {
+		restorer.contextValue = value
+	}
+	return restorer.err
 }
 
 func (cleaner *stubIntegrationCleaner) Remove(ctx context.Context) error {
