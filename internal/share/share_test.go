@@ -227,7 +227,7 @@ func TestGenerateBundleRendersExactNodeURIsAsPNG(t *testing.T) {
 func TestGenerateBundlePreservesQREncoderErrors(t *testing.T) {
 	sentinel := errors.New("QR encoder failed")
 	_, err := GenerateBundle(Input{
-		LocalNodes:  []LocalNode{completeNode(domain.ProtocolVLESS, 25559)},
+		LocalNodes: []LocalNode{completeNode(domain.ProtocolVLESS, 25559)},
 		QRRenderer: &recordingQRRenderer{err: sentinel},
 	})
 	if !errors.Is(err, sentinel) {
