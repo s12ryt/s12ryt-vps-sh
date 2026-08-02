@@ -19,7 +19,7 @@ func TestDeploymentStatePersistsRemoteSecretsAndCompilesRotatingOutbound(t *test
 	state := deploymentStateFixture()
 	state.RemoteOutbounds = []PersistedRemoteOutbound{{
 		Enabled: true,
-		Config: json.RawMessage(`{"type":"vless","tag":"remote-vless","server":"proxy.example.com","server_port":443,"uuid":"550e8400-e29b-41d4-a716-446655440000","tls":{"enabled":true,"server_name":"proxy.example.com"}}`),
+		Config:  json.RawMessage(`{"type":"vless","tag":"remote-vless","server":"proxy.example.com","server_port":443,"uuid":"550e8400-e29b-41d4-a716-446655440000","tls":{"enabled":true,"server_name":"proxy.example.com"}}`),
 	}}
 	if err := store.Save(state); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -102,7 +102,7 @@ func TestDeploymentStateCompilesOrderedIPv4ProxyFallback(t *testing.T) {
 func TestDeploymentStateRejectsUnsafeRemoteOutboundReferences(t *testing.T) {
 	validVLESS := PersistedRemoteOutbound{
 		Enabled: true,
-		Config: json.RawMessage(`{"type":"vless","tag":"remote-vless","server":"proxy.example.com","server_port":443,"uuid":"550e8400-e29b-41d4-a716-446655440000"}`),
+		Config:  json.RawMessage(`{"type":"vless","tag":"remote-vless","server":"proxy.example.com","server_port":443,"uuid":"550e8400-e29b-41d4-a716-446655440000"}`),
 	}
 	validSOCKS := PersistedRemoteOutbound{
 		Config: json.RawMessage(`{"type":"socks","tag":"remote-socks","server":"192.0.2.10","server_port":1080,"version":"5","username":"user","password":"secret"}`),
