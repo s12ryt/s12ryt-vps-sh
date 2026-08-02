@@ -128,3 +128,10 @@
 - 建立正式 `v1.1.0` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.1.0），保留既有 Releases；tag 精確指向上述全綠提交，latest Release API 回傳 `v1.1.0`，且不是 draft 或 prerelease。
 - 從候選 run 下載 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64` 與 `SHA256SUMS`，以 Windows `Get-FileHash` 逐項核對成功；Release API 的資產 digest 分別為 `1c1047c5f9545afc3398ed28a02df6f654769404576e4d5712592fc95f8150f3` 與 `b46b19924d15541ee91967736639bf8219b410b2edec274ace33336ea50c55c9`。
 - 驗證 tag 內 `s12ryt.sh` 版本為 `1.1.0`、`install-ipv6.sh` 的 `IPV6_PROJECT_VERSION` 為 `1.1.0`、`install-proot.sh` 可讀，README 含 v1.1.0、多 IPv6 項目與公開 HTTP 風險說明。
+
+## 2026-08-03
+
+- 使用者要求自主疊代升級 Web 頁面與操作體驗；依不新增業務功能、維持公開 API/安全/schema 的原則開始 v1.1.1 UI/UX 改善。
+- 盤點現有 Go raw-string 內嵌頁面與 Playwright 契約：功能區長頁堆疊、樣式分散、mutation 缺一致 loading/disabled、防重複提交與成功回饋，modal 缺焦點鎖定/返回，錯誤多集中在區塊頂端；既有八個 static modal、無 CDN、CSRF/session/client-IP/秘密遮罩契約均須保留。
+- 完成 UI/UX 設計系統調研；使用者確認深色 NOC 控制台、平衡密度、完整操作優化、Desktop 側欄與 Mobile 分頁，並以五工作區 `strategy/nodes/remotes/network/shares` 的 URL hash 支援重新整理及瀏覽器歷史。
+- 使用者確認完成後發布 `v1.1.1`，保留 `v1.1.0`；所有驗證仍只在 GitHub-hosted Actions 執行。
