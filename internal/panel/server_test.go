@@ -301,6 +301,22 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 		`data-fallback-form`,
 		`name="ipv4_fallback_tags"`,
 		`allow_ipv4_proxy:`,
+		`data-network-addresses-endpoint="/abcdefghijkl/api/network/addresses"`,
+		`data-network-apply-endpoint="/abcdefghijkl/api/network/apply"`,
+		`data-network-workspace`,
+		`data-network-address-table`,
+		`data-network-refresh`,
+		`data-network-form`,
+		`name="network_interface"`,
+		`name="network_prefix"`,
+		`name="network_count"`,
+		`name="firewall_backend"`,
+		`name="allowed_cidrs"`,
+		`name="node_ports"`,
+		`data-network-apply`,
+		`data-network-result`,
+		`address_count`,
+		`firewall_backend`,
 		`X-CSRF-Token`,
 		`X-S12ryt-Confirm`,
 	} {
@@ -308,8 +324,8 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 			t.Fatalf("dashboard missing configuration marker %q", expected)
 		}
 	}
-	if strings.Count(body, `data-modal-backdrop="static"`) != 6 {
-		t.Fatalf("static modal count = %d, want 6", strings.Count(body, `data-modal-backdrop="static"`))
+	if strings.Count(body, `data-modal-backdrop="static"`) != 7 {
+		t.Fatalf("static modal count = %d, want 7", strings.Count(body, `data-modal-backdrop="static"`))
 	}
 	if strings.Contains(body, "innerHTML") {
 		t.Fatal("dashboard remote UI must not render API data through innerHTML")
