@@ -12,15 +12,15 @@ import (
 
 func TestGenerateBundleBuildsVLESSURIClientJSONAndQRPayload(t *testing.T) {
 	node := LocalNode{
-		ID:        "edge-vless",
-		Name:      "台北 edge",
-		Protocol:  domain.ProtocolVLESS,
-		Server:    netip.MustParseAddr("2001:db8:abcd::10"),
-		Port:      24443,
-		UUID:      "550e8400-e29b-41d4-a716-446655440000",
-		Enabled:   true,
-		Healthy:   true,
-		TLS:       TLSOptions{ServerName: "edge.example.com"},
+		ID:       "edge-vless",
+		Name:     "台北 edge",
+		Protocol: domain.ProtocolVLESS,
+		Server:   netip.MustParseAddr("2001:db8:abcd::10"),
+		Port:     24443,
+		UUID:     "550e8400-e29b-41d4-a716-446655440000",
+		Enabled:  true,
+		Healthy:  true,
+		TLS:      TLSOptions{ServerName: "edge.example.com"},
 		Transport: TransportOptions{
 			Type: "ws",
 			Path: "/edge path",
