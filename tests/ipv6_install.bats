@@ -58,7 +58,8 @@ case "${S12RYT_CURL_MODE:-success}:${url}" in
             archive_root="${output%/*}/archive-root"
             mkdir -p "${archive_root}/sing-box-1.13.15-linux-amd64"
             printf 'sing-box-amd64\n' > "${archive_root}/sing-box-1.13.15-linux-amd64/sing-box"
-            /usr/bin/tar -czf "$output" -C "$archive_root" sing-box-1.13.15-linux-amd64
+            /usr/bin/tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 \
+                --numeric-owner -czf "$output" -C "$archive_root" sing-box-1.13.15-linux-amd64
             rm -rf "$archive_root"
         fi
         ;;
