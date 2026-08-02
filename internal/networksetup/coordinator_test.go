@@ -26,7 +26,7 @@ func TestCoordinatorDiscoversGeneratesAndAppliesProtectedIntegrationManifest(t *
 	coordinator, err := NewCoordinator(CoordinatorOptions{
 		Discovery: discovery,
 		Applier:   applier,
-		Entropy: bytes.NewReader(entropyAddresses(1, 2, 3)),
+		Entropy:   bytes.NewReader(entropyAddresses(1, 2, 3)),
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
