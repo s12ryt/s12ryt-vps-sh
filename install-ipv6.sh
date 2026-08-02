@@ -423,6 +423,153 @@ install_verified_ipv6_bundle() {
     printf '多 IPv6 出站面板安裝完成。\n'
 }
 
+restart_ipv6_project_service() {
+    case "$1" in
+        systemd)
+            systemctl restart s12ryt-ipv6.service
+            ;;
+        openrc)
+            rc-service s12ryt-ipv6 restart
+            ;;
+        *)
+            printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
+            return 1
+            ;;
+    esac
+}
+
+restore_ipv6_project_update() {
+    local project_root="$1"
+    local backup_directory="$2"
+    local init_system="$3"
+    local restore_directory failed_config
+
+    restore_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-restore.XXXXXX")" || return 1
+    if ! cp -p -- "${backup_directory}/bin/s12ryt-ipv6" "${restore_directory}/s12ryt-ipv6" ||
+        ! cp -p -- "${backup_directory}/bin/sing-box" "${restore_directory}/sing-box" ||
+        ! chmod 0755 "${restore_directory}/s12ryt-ipv6" "${restore_directory}/sing-box" ||
+        ! mv -f -- "${restore_directory}/s12ryt-ipv6" "${project_root}/bin/s12ryt-ipv6" ||
+        ! mv -f -- "${restore_directory}/sing-box" "${project_root}/bin/sing-box"; then
+        rm -rf -- "$restore_directory"
+        return 1
+    fi
+    rm -rf -- "$restore_directory"
+
+    restore_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-config-restore.XXXXXX")" || return 1
+    if ! cp -a -- "${backup_directory}/config/." "$restore_directory/"; then
+        rm -rf -- "$restore_directory"
+        return 1
+    fi
+    failed_config="${project_root}/.s12ryt-ipv6-failed-config"
+    rm -rf -- "$failed_config"
+    if ! mv -- "${project_root}/config" "$failed_config" ||
+        ! mv -- "$restore_directory" "${project_root}/config"; then
+        if [[ ! -d "${project_root}/config" && -d "$failed_config" ]]; then
+            mv -- "$failed_config" "${project_root}/config" >/dev/null 2>&1 || true
+        fi
+        rm -rf -- "$restore_directory"
+        return 1
+    fi
+    rm -rf -- "$failed_config"
+    restart_ipv6_project_service "$init_system"
+}
+
+update_verified_ipv6_bundle() {
+    local bundle="$1"
+    local architecture="$2"
+    local init_system="$3"
+    local project_root panel_asset singbox_asset archive_entry
+    local panel_source archive_source backup_root backup_directory temporary_directory
+    local panel_temporary singbox_temporary health_url health_response command_name
+
+    panel_asset="$(panel_asset_name "$architecture")" || return 1
+    singbox_asset="$(singbox_asset_name "$architecture")" || return 1
+    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
+    panel_source="${bundle}/${panel_asset}"
+    archive_source="${bundle}/${singbox_asset}"
+    archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
+
+    if [[ ! -f "$panel_source" || ! -f "$archive_source" ]]; then
+        printf '錯誤：已驗證的 IPv6 專案資產不完整。\n' >&2
+        return 1
+    fi
+    if [[ ! -x "${project_root}/bin/s12ryt-ipv6" || ! -x "${project_root}/bin/sing-box" ||
+        ! -f "${project_root}/config/config.json" || ! -f "${project_root}/config/sing-box.json" ]]; then
+        printf '錯誤：IPv6 專案安裝狀態不完整，無法更新。\n' >&2
+        return 1
+    fi
+    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
+        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
+        return 1
+    fi
+    for command_name in chmod cp curl mkdir mktemp mv rm tar; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            printf '錯誤：缺少必要命令：%s。\n' "$command_name" >&2
+            return 1
+        fi
+    done
+
+    backup_root="${project_root}/backups"
+    mkdir -p -- "$backup_root" || return 1
+    chmod 0700 "$backup_root" || return 1
+    backup_directory="$(mktemp -d "${backup_root}/update.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案更新備份。\n' >&2
+        return 1
+    }
+    mkdir -p -- "${backup_directory}/bin" "${backup_directory}/config" || return 1
+    if ! cp -p -- "${project_root}/bin/s12ryt-ipv6" "${backup_directory}/bin/s12ryt-ipv6" ||
+        ! cp -p -- "${project_root}/bin/sing-box" "${backup_directory}/bin/sing-box" ||
+        ! cp -a -- "${project_root}/config/." "${backup_directory}/config/"; then
+        rm -rf -- "$backup_directory"
+        printf '錯誤：無法備份 IPv6 專案更新狀態。\n' >&2
+        return 1
+    fi
+
+    temporary_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-update.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案更新暫存目錄。\n' >&2
+        return 1
+    }
+    panel_temporary="${temporary_directory}/s12ryt-ipv6"
+    singbox_temporary="${temporary_directory}/sing-box"
+    if ! cp -- "$panel_source" "$panel_temporary" ||
+        ! tar -xzf "$archive_source" -C "$temporary_directory" "$archive_entry" 2>/dev/null ||
+        ! mv -- "${temporary_directory}/${archive_entry}" "$singbox_temporary" ||
+        ! chmod 0755 "$panel_temporary" "$singbox_temporary" ||
+        ! "$singbox_temporary" check -c "${project_root}/config/sing-box.json"; then
+        rm -rf -- "$temporary_directory"
+        printf '錯誤：IPv6 專案更新資產驗證失敗。\n' >&2
+        return 1
+    fi
+    if ! mv -f -- "$panel_temporary" "${project_root}/bin/s12ryt-ipv6" ||
+        ! mv -f -- "$singbox_temporary" "${project_root}/bin/sing-box"; then
+        rm -rf -- "$temporary_directory"
+        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
+        printf '錯誤：IPv6 專案 binary 替換失敗，已嘗試恢復舊版本。\n' >&2
+        return 1
+    fi
+    rm -rf -- "$temporary_directory"
+
+    if ! restart_ipv6_project_service "$init_system"; then
+        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
+        printf '錯誤：IPv6 專案服務重啟失敗，已嘗試恢復舊版本。\n' >&2
+        return 1
+    fi
+    health_url="$(S12RYT_PROJECT_ROOT="$project_root" "${project_root}/bin/s12ryt-ipv6" health-url)" || health_url=''
+    if [[ ! "$health_url" =~ ^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9]+/healthz$ ]]; then
+        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
+        printf '錯誤：面板健康檢查 URL 無效，已恢復舊版本。\n' >&2
+        return 1
+    fi
+    health_response="$(curl -fsS --connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 "$health_url")" || health_response=''
+    if [[ "$health_response" != *'"status":"ok"'* ]]; then
+        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
+        printf '錯誤：健康檢查失敗，已恢復舊版本。\n' >&2
+        return 1
+    fi
+
+    printf '多 IPv6 出站面板更新完成；備份位於：%s\n' "$backup_directory"
+}
+
 install_ipv6_project_release() {
     local machine_arch architecture init_system temporary_root temporary_bundle install_status=0
 
@@ -444,6 +591,29 @@ install_ipv6_project_release() {
     fi
     rm -rf -- "$temporary_root"
     return "$install_status"
+}
+
+update_ipv6_project_release() {
+    local machine_arch architecture init_system temporary_root temporary_bundle update_status=0
+
+    check_ipv6_project_preflight || return 1
+    machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
+    architecture="$(map_ipv6_project_arch "$machine_arch")" || return 1
+    init_system="$(detect_ipv6_project_init)"
+    temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-update.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案更新暫存目錄。\n' >&2
+        return 1
+    }
+    temporary_bundle="${temporary_root}/s12ryt-ipv6-bundle.assets"
+
+    if fetch_ipv6_release_bundle "$temporary_bundle" "$architecture" &&
+        update_verified_ipv6_bundle "$temporary_bundle" "$architecture" "$init_system"; then
+        update_status=0
+    else
+        update_status=$?
+    fi
+    rm -rf -- "$temporary_root"
+    return "$update_status"
 }
 
 configure_ipv6_project_state() {
@@ -478,6 +648,13 @@ main() {
             fi
             install_ipv6_project_release
             ;;
+        update)
+            if (($# != 1)); then
+                printf '用法：%s update\n' "${0##*/}" >&2
+                return 1
+            fi
+            update_ipv6_project_release
+            ;;
         configure)
             if (($# != 1)); then
                 printf '用法：%s configure\n' "${0##*/}" >&2
@@ -486,7 +663,7 @@ main() {
             configure_ipv6_project_state
             ;;
         *)
-            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|configure]\n' "${0##*/}" >&2
+            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|update|configure]\n' "${0##*/}" >&2
             return 1
             ;;
     esac
