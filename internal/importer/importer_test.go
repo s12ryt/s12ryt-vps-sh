@@ -115,3 +115,82 @@ func TestImportAllowsAuthenticatedHTTPProxyOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("HTTP outbound = %#v", outbounds)
 	}
 }
+
+func TestImportBuildsCanonicalSingBoxOutboundsFromShareLinks(t *testing.T) {
+	vmessJSON := `{"v":"2","ps":"vmess-node","add":"vm.example.com","port":"443","id":"550e8400-e29b-41d4-a716-446655440000","net":"ws","path":"/vmess","sni":"vm.example.com","tls":"tls"}`
+	shadowsocksUserInfo := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:shadow-secret"))
+	input := strings.Join([]string{
+		"vless://550e8400-e29b-41d4-a716-446655440000@vless.example.com:443?security=tls&sni=vless.example.com&type=ws&path=%2Fvless#vless",
+		"vmess://" + base64.RawStdEncoding.EncodeToString([]byte(vmessJSON)),
+		"hysteria2://hy2-secret@hy2.example.com:8443?sni=hy2.example.com#hy2",
+		"tuic://550e8400-e29b-41d4-a716-446655440001:tuic-secret@tuic.example.com:443?sni=tuic.example.com#tuic",
+		"anytls://any-secret@any.example.com:9443?sni=any.example.com#anytls",
+		"ss://" + shadowsocksUserInfo + "@ss.example.com:8388#shadowsocks",
+		"socks5://socks-user:socks-secret@192.0.2.10:1080#socks",
+		"https://http-user:http-secret@proxy.example.com:8443#http",
+	}, "\n")
+
+	outbounds, err := Import([]byte(input), Options{AllowIPv4Proxy: true})
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if len(outbounds) != 8 {
+		t.Fatalf("outbound count = %d, want 8", len(outbounds))
+	}
+	for _, outbound := range outbounds {
+		if outbound.Raw["type"] != outbound.Type || outbound.Raw["tag"] != outbound.Tag {
+			t.Fatalf("outbound %q raw identity = %#v", outbound.Tag, outbound.Raw)
+		}
+		if outbound.Raw["server"] != outbound.Server || outbound.Raw["server_port"] != outbound.Port {
+			t.Fatalf("outbound %q raw endpoint = %#v", outbound.Tag, outbound.Raw)
+		}
+		if _, exists := outbound.Raw["uri"]; exists {
+			t.Fatalf("outbound %q retained non-runtime URI: %#v", outbound.Tag, outbound.Raw)
+		}
+	}
+
+	assertRawString(t, outbounds[0].Raw, "uuid", "550e8400-e29b-41d4-a716-446655440000")
+	assertRawTLS(t, outbounds[0].Raw, "vless.example.com")
+	assertRawTransport(t, outbounds[0].Raw, "ws", "path", "/vless")
+	assertRawString(t, outbounds[1].Raw, "uuid", "550e8400-e29b-41d4-a716-446655440000")
+	assertRawTLS(t, outbounds[1].Raw, "vm.example.com")
+	assertRawTransport(t, outbounds[1].Raw, "ws", "path", "/vmess")
+	assertRawString(t, outbounds[2].Raw, "password", "hy2-secret")
+	assertRawTLS(t, outbounds[2].Raw, "hy2.example.com")
+	assertRawString(t, outbounds[3].Raw, "uuid", "550e8400-e29b-41d4-a716-446655440001")
+	assertRawString(t, outbounds[3].Raw, "password", "tuic-secret")
+	assertRawTLS(t, outbounds[3].Raw, "tuic.example.com")
+	assertRawString(t, outbounds[4].Raw, "password", "any-secret")
+	assertRawTLS(t, outbounds[4].Raw, "any.example.com")
+	assertRawString(t, outbounds[5].Raw, "method", "aes-256-gcm")
+	assertRawString(t, outbounds[5].Raw, "password", "shadow-secret")
+	assertRawString(t, outbounds[6].Raw, "version", "5")
+	assertRawString(t, outbounds[6].Raw, "username", "socks-user")
+	assertRawString(t, outbounds[6].Raw, "password", "socks-secret")
+	assertRawString(t, outbounds[7].Raw, "username", "http-user")
+	assertRawString(t, outbounds[7].Raw, "password", "http-secret")
+	assertRawTLS(t, outbounds[7].Raw, "proxy.example.com")
+}
+
+func assertRawString(t *testing.T, raw map[string]any, field, want string) {
+	t.Helper()
+	if got := raw[field]; got != want {
+		t.Fatalf("raw field %q = %#v, want %q in %#v", field, got, want, raw)
+	}
+}
+
+func assertRawTLS(t *testing.T, raw map[string]any, serverName string) {
+	t.Helper()
+	tlsConfig, ok := raw["tls"].(map[string]any)
+	if !ok || tlsConfig["enabled"] != true || tlsConfig["server_name"] != serverName {
+		t.Fatalf("raw TLS = %#v, want enabled with server_name %q in %#v", raw["tls"], serverName, raw)
+	}
+}
+
+func assertRawTransport(t *testing.T, raw map[string]any, transportType, field, value string) {
+	t.Helper()
+	transport, ok := raw["transport"].(map[string]any)
+	if !ok || transport["type"] != transportType || transport[field] != value {
+		t.Fatalf("raw transport = %#v, want %s %s=%q in %#v", raw["transport"], transportType, field, value, raw)
+	}
+}
