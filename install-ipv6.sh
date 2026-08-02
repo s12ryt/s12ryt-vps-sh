@@ -676,6 +676,7 @@ update_ipv6_project_release() {
 
 configure_ipv6_project_state() {
     local project_root panel_binary init_system choice confirmation password password_confirmation
+    local panel_port web_path listen_ipv6
 
     check_ipv6_project_preflight || return 1
     project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
@@ -692,6 +693,7 @@ configure_ipv6_project_state() {
             '1. 顯示面板狀態' \
             '2. 安全隨機重設管理密碼' \
             '3. 自訂管理密碼' \
+            '4. 變更管理面板端點' \
             '0. 返回'
         choice=''
         IFS= read -r choice || true
@@ -731,6 +733,30 @@ configure_ipv6_project_state() {
                     continue
                 fi
                 restart_and_verify_ipv6_panel "$project_root" "$panel_binary" "$init_system" || true
+                ;;
+            4)
+                printf '輸入新的管理面板埠：'
+                panel_port=''
+                IFS= read -r panel_port || true
+                printf '輸入新的 Web 路徑（以 / 開頭）：'
+                web_path=''
+                IFS= read -r web_path || true
+                printf '輸入新的監聽 IPv6（- 表示雙棧 wildcard）：'
+                listen_ipv6=''
+                IFS= read -r listen_ipv6 || true
+                printf '確認變更管理面板端點為埠 %s、路徑 %s、IPv6 %s？[y/N] ' \
+                    "$panel_port" "$web_path" "$listen_ipv6"
+                confirmation=''
+                IFS= read -r confirmation || true
+                if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
+                    printf '已取消管理面板端點變更。\n'
+                    continue
+                fi
+                if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" \
+                    set-endpoint "$panel_port" "$web_path" "$listen_ipv6" "$init_system"; then
+                    printf '錯誤：管理面板端點交易失敗，既有端點已由面板回復。\n' >&2
+                    continue
+                fi
                 ;;
             0 | '')
                 return 0
