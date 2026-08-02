@@ -1284,7 +1284,11 @@ install_ipv6_project() {
 }
 
 update_ipv6_project() {
-    not_implemented
+    local helper
+
+    helper="$(ipv6_helper_path)"
+    ensure_ipv6_helper "$helper" || return 1
+    bash "$helper" update
 }
 
 configure_ipv6_project() {
