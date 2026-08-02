@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 )
 
 const SessionCookieName = "s12ryt_panel_session"
@@ -317,10 +319,17 @@ type nodeSummary struct {
 }
 
 type createNodeRequest struct {
-	ID       string          `json:"id"`
-	Protocol domain.Protocol `json:"protocol"`
-	Port     int             `json:"port"`
-	Enabled  bool            `json:"enabled"`
+	ID         string                 `json:"id"`
+	Protocol   domain.Protocol        `json:"protocol"`
+	Port       int                    `json:"port"`
+	Enabled    bool                   `json:"enabled"`
+	Deployment *nodeDeploymentRequest `json:"deployment"`
+}
+
+type nodeDeploymentRequest struct {
+	Listeners []netip.Addr                           `json:"listeners"`
+	TLS       runtimeconfig.PersistedTLSConfig       `json:"tls"`
+	Transport runtimeconfig.PersistedTransportConfig `json:"transport"`
 }
 
 type updateNodeRequest struct {
@@ -362,8 +371,18 @@ func (server *Server) createNode(response http.ResponseWriter, request *http.Req
 	if !decodeStrictJSON(response, request, &input) {
 		return
 	}
+	if input.Deployment == nil {
+		http.Error(response, "節點部署設定不可省略。", http.StatusBadRequest)
+		return
+	}
 	node, err := server.nodeManager.Create(nodes.CreateInput{
 		ID: input.ID, Protocol: input.Protocol, Port: input.Port, Enabled: input.Enabled,
+		Deployment: runtimeconfig.PersistedNodeDeployment{
+			NodeID:    input.ID,
+			Listeners: append([]netip.Addr(nil), input.Deployment.Listeners...),
+			TLS:       input.Deployment.TLS,
+			Transport: input.Deployment.Transport,
+		},
 	})
 	if err != nil {
 		http.Error(response, "無法建立節點。", http.StatusUnprocessableEntity)
