@@ -506,14 +506,17 @@ EOF
     mkdir -p "${S12RYT_PROJECT_ROOT}/backups/update.saved"
     printf 'backup-sentinel\n' > "${S12RYT_PROJECT_ROOT}/backups/update.saved/sentinel"
     local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    local network_unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6-network.service"
     mkdir -p "${unit_path%/*}"
     printf 'unit-sentinel\n' > "$unit_path"
+    printf 'network-unit-sentinel\n' > "$network_unit_path"
 
     run /usr/bin/env \
         PATH="$PATH" \
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        S12RYT_SYSTEMD_NETWORK_UNIT_PATH="$network_unit_path" \
         /bin/bash -c 'source "$1"; printf "1\ny\n" | uninstall_ipv6_project_state systemd' _ \
         "${PROJECT_ROOT}/install-ipv6.sh"
 
@@ -521,11 +524,13 @@ EOF
     [ ! -e "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
     [ ! -e "${S12RYT_PROJECT_ROOT}/bin/sing-box" ]
     [ ! -e "$unit_path" ]
+    [ ! -e "$network_unit_path" ]
     [ -s "${S12RYT_PROJECT_ROOT}/config/config.json" ]
     [ -s "${S12RYT_PROJECT_ROOT}/secrets/management.password" ]
     [ -s "${S12RYT_PROJECT_ROOT}/backups/update.saved/sentinel" ]
     [ "$(head -n 1 "$MOCK_LOG")" = "old-panel cleanup-system" ]
     grep -Fxq 'systemctl disable --now s12ryt-ipv6.service' "$MOCK_LOG"
+    grep -Fxq 'systemctl disable --now s12ryt-ipv6-network.service' "$MOCK_LOG"
     grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
 }
 
@@ -534,9 +539,11 @@ EOF
     create_command_mock rc-update
     create_command_mock rc-service
     local service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6"
+    local network_service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6-network"
     local logrotate_path="${TEST_ROOT}/etc/logrotate.d/s12ryt-ipv6"
     mkdir -p "${service_path%/*}" "${logrotate_path%/*}"
     printf 'service-sentinel\n' > "$service_path"
+    printf 'network-service-sentinel\n' > "$network_service_path"
     printf 'logrotate-sentinel\n' > "$logrotate_path"
 
     run /usr/bin/env \
@@ -544,6 +551,7 @@ EOF
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_OPENRC_SERVICE_PATH="$service_path" \
+        S12RYT_OPENRC_NETWORK_SERVICE_PATH="$network_service_path" \
         S12RYT_LOGROTATE_PATH="$logrotate_path" \
         /bin/bash -c 'source "$1"; printf "2\ny\n" | uninstall_ipv6_project_state openrc' _ \
         "${PROJECT_ROOT}/install-ipv6.sh"
@@ -551,10 +559,13 @@ EOF
     [ "$status" -eq 0 ]
     [ ! -e "$S12RYT_PROJECT_ROOT" ]
     [ ! -e "$service_path" ]
+    [ ! -e "$network_service_path" ]
     [ ! -e "$logrotate_path" ]
     [ "$(head -n 1 "$MOCK_LOG")" = "old-panel cleanup-system" ]
     grep -Fxq 'rc-service s12ryt-ipv6 stop' "$MOCK_LOG"
+    grep -Fxq 'rc-service s12ryt-ipv6-network stop' "$MOCK_LOG"
     grep -Fxq 'rc-update del s12ryt-ipv6 default' "$MOCK_LOG"
+    grep -Fxq 'rc-update del s12ryt-ipv6-network default' "$MOCK_LOG"
 }
 
 @test "系統整合清理失敗時停止卸載並保留服務與資料" {
@@ -569,8 +580,10 @@ EOF
     chmod 0755 "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
     create_command_mock systemctl
     local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    local network_unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6-network.service"
     mkdir -p "${unit_path%/*}" "${S12RYT_PROJECT_ROOT}/state"
     printf 'unit-sentinel\n' > "$unit_path"
+    printf 'network-unit-sentinel\n' > "$network_unit_path"
     printf 'manifest-sentinel\n' > "${S12RYT_PROJECT_ROOT}/state/integration.json"
 
     run /usr/bin/env \
@@ -578,6 +591,7 @@ EOF
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        S12RYT_SYSTEMD_NETWORK_UNIT_PATH="$network_unit_path" \
         /bin/bash -c 'source "$1"; printf "2\ny\n" | uninstall_ipv6_project_state systemd' _ \
         "${PROJECT_ROOT}/install-ipv6.sh"
 
@@ -586,6 +600,7 @@ EOF
     [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
     [ -s "${S12RYT_PROJECT_ROOT}/state/integration.json" ]
     [ -s "$unit_path" ]
+    [ -s "$network_unit_path" ]
     [ "$(cat "$MOCK_LOG")" = "old-panel cleanup-system" ]
 }
 
@@ -593,14 +608,17 @@ EOF
     create_installed_ipv6_project
     create_command_mock systemctl
     local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    local network_unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6-network.service"
     mkdir -p "${unit_path%/*}"
     printf 'unit-sentinel\n' > "$unit_path"
+    printf 'network-unit-sentinel\n' > "$network_unit_path"
 
     run /usr/bin/env \
         PATH="$PATH" \
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        S12RYT_SYSTEMD_NETWORK_UNIT_PATH="$network_unit_path" \
         /bin/bash -c 'source "$1"; printf "2\nn\n" | uninstall_ipv6_project_state systemd' _ \
         "${PROJECT_ROOT}/install-ipv6.sh"
 
@@ -608,5 +626,6 @@ EOF
     [[ "$output" == *"已取消多 IPv6 出站卸載"* ]]
     [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
     [ -s "$unit_path" ]
+    [ -s "$network_unit_path" ]
     [ ! -s "$MOCK_LOG" ]
 }
