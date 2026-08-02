@@ -124,3 +124,7 @@
 - 將主腳本升至 v1.1.0，全面更新 README 的三腳本安裝流程、多 IPv6 面板、安全邊界、協議、三模式四拓撲、交易回滾、Release assets、Playwright 與資源證據。首個候選 run `30761947232` 只暴露自我更新測試仍把 v1.1.0 當成未來新版；將非 latest fixture 推進至 v1.2.0 後，安全與失敗保護斷言維持不變。
 - 最終發行候選 GitHub Actions run `30762093464` 完整通過 Go format/test/vet、Bash 語法、ShellCheck、96 項 Bats、README/LICENSE、Playwright 桌面/手機 10 項、amd64/arm64 Release assets 與 SHA256SUMS、真實 64 IPv6 + 28 nodes 穩定 60 秒資源門檻，以及 10 個 x86_64 發行版容器煙霧測試。
 - 完成 v1.1.0 發行前品質審查，未發現未處理的重大或高風險問題。自動化未涵蓋真實外部 VPS 與 arm64 實機；公開 HTTP 面板的憑證與 session 可能被網路攔截，README 已明確標示此使用者接受的風險。
+- 發行紀錄候選提交 `020f03de6404b54937952b990051eb6d4664f462` 的 GitHub Actions run `30762345278` 再次完整通過 Go、96 項 Bats、Playwright、Release assets、真實資源門檻與 10 個發行版容器驗收。
+- 建立正式 `v1.1.0` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.1.0），保留既有 Releases；tag 精確指向上述全綠提交，latest Release API 回傳 `v1.1.0`，且不是 draft 或 prerelease。
+- 從候選 run 下載 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64` 與 `SHA256SUMS`，以 Windows `Get-FileHash` 逐項核對成功；Release API 的資產 digest 分別為 `1c1047c5f9545afc3398ed28a02df6f654769404576e4d5712592fc95f8150f3` 與 `b46b19924d15541ee91967736639bf8219b410b2edec274ace33336ea50c55c9`。
+- 驗證 tag 內 `s12ryt.sh` 版本為 `1.1.0`、`install-ipv6.sh` 的 `IPV6_PROJECT_VERSION` 為 `1.1.0`、`install-proot.sh` 可讀，README 含 v1.1.0、多 IPv6 項目與公開 HTTP 風險說明。
