@@ -124,6 +124,25 @@ func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
 	if info, err := os.Stat(runtimeStatePath); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("runtime state mode = %v, %v, want 0600", info, err)
 	}
+	runtimeInput, err := runtimeState.Resolve(config)
+	if err != nil {
+		t.Fatalf("Resolve(initial runtime state) error = %v", err)
+	}
+	wantRuntimeConfig, err := runtimeconfig.CompileServerConfig(runtimeInput)
+	if err != nil {
+		t.Fatalf("CompileServerConfig(initial runtime state) error = %v", err)
+	}
+	runtimeConfigPath := filepath.Join(projectRoot, "config", "sing-box.json")
+	runtimeConfig, err := os.ReadFile(runtimeConfigPath)
+	if err != nil {
+		t.Fatalf("read initialized sing-box config: %v", err)
+	}
+	if !bytes.Equal(runtimeConfig, wantRuntimeConfig) {
+		t.Fatalf("initialized sing-box config = %s, want %s", runtimeConfig, wantRuntimeConfig)
+	}
+	if info, err := os.Stat(runtimeConfigPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("sing-box config mode = %v, %v, want 0600", info, err)
+	}
 	for _, directory := range []string{
 		filepath.Join(projectRoot, "config"),
 		filepath.Join(projectRoot, "secrets"),
@@ -135,6 +154,39 @@ func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
 		}
 		if info.Mode().Perm() != 0o700 {
 			t.Fatalf("directory %s mode = %04o, want 0700", directory, info.Mode().Perm())
+		}
+	}
+}
+
+func TestInitializeProjectRefusesToOverwriteSingBoxConfiguration(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	runtimeConfigPath := filepath.Join(projectRoot, "config", "sing-box.json")
+	if err := os.MkdirAll(filepath.Dir(runtimeConfigPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(runtimeConfigPath, []byte("sentinel\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3c}, 512)),
+	})
+	if err == nil {
+		t.Fatal("initializeProject() overwrote an existing sing-box configuration")
+	}
+	contents, readErr := os.ReadFile(runtimeConfigPath)
+	if readErr != nil || string(contents) != "sentinel\n" {
+		t.Fatalf("existing sing-box config = %q, %v", contents, readErr)
+	}
+	for _, path := range []string{
+		filepath.Join(projectRoot, "config", "config.json"),
+		filepath.Join(projectRoot, "state", "runtime.json"),
+		filepath.Join(projectRoot, "secrets", "password.hash"),
+		filepath.Join(projectRoot, "secrets", "management.password"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("initialization created %s after refusal: %v", path, statErr)
 		}
 	}
 }
