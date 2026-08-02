@@ -184,18 +184,18 @@ func newFakeHealthTicker() *fakeHealthTicker {
 }
 
 func (ticker *fakeHealthTicker) C() <-chan time.Time { return ticker.tick }
-func (ticker *fakeHealthTicker) Stop()                 { ticker.stopped = true }
+func (ticker *fakeHealthTicker) Stop()               { ticker.stopped = true }
 
 func mustHealthMonitor(t *testing.T, selector *Selector, probe Probe, factory healthTickerFactory) *HealthMonitor {
 	t.Helper()
 	monitor, err := NewHealthMonitor(HealthMonitorOptions{
-		Selector:      selector,
-		Candidates:    []string{"preferred", "fallback"},
-		URL:           "https://www.cloudflare.com/cdn-cgi/trace",
-		Interval:      30 * time.Second,
-		Timeout:       5 * time.Second,
-		Probe:         probe,
-		newTicker:     factory,
+		Selector:   selector,
+		Candidates: []string{"preferred", "fallback"},
+		URL:        "https://www.cloudflare.com/cdn-cgi/trace",
+		Interval:   30 * time.Second,
+		Timeout:    5 * time.Second,
+		Probe:      probe,
+		newTicker:  factory,
 	})
 	if err != nil {
 		t.Fatalf("NewHealthMonitor() error = %v", err)
