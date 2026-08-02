@@ -97,8 +97,24 @@ func TestConfigApplyDelegatesToNodeManager(t *testing.T) {
 	manager := newFakeNodeManager()
 	server := newNodeAPIServer(t, manager)
 	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
-	candidate := manager.Snapshot()
-	candidate.Routing.Mode = domain.RoutingModeIPv6Only
+	current := performNodeRequest(t, server, http.MethodGet, "/api/config", cookie, "", "", nil)
+	if current.Code != http.StatusOK {
+		t.Fatalf("current config status = %d, want 200", current.Code)
+	}
+	for _, secret := range []string{`"credential":`, manager.config.Nodes[0].Credential.UUID} {
+		if strings.Contains(current.Body.String(), secret) {
+			t.Fatalf("config endpoint leaked %q: %s", secret, current.Body.String())
+		}
+	}
+	var candidate map[string]any
+	if err := json.Unmarshal(current.Body.Bytes(), &candidate); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	routing, ok := candidate["routing"].(map[string]any)
+	if !ok {
+		t.Fatalf("routing payload = %#v", candidate["routing"])
+	}
+	routing["mode"] = string(domain.RoutingModeIPv6Only)
 	payload, _ := json.Marshal(candidate)
 
 	response := performNodeRequest(t, server, http.MethodPost, "/api/config/apply", cookie, csrfToken, "apply", payload)
