@@ -262,12 +262,14 @@ EOF
     local bundle="${TEST_ROOT}/verified-bundle"
     create_verified_ipv6_bundle "$bundle"
     local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    local network_unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6-network.service"
 
     run /usr/bin/env \
         PATH="$PATH" \
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        S12RYT_SYSTEMD_NETWORK_UNIT_PATH="$network_unit_path" \
         /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 systemd' _ \
         "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
 
@@ -278,10 +280,16 @@ EOF
     [ "$(stat -c '%a' "${S12RYT_PROJECT_ROOT}/secrets/password.hash")" = "600" ]
     [ "$(stat -c '%a' "${S12RYT_PROJECT_ROOT}/secrets/management.password")" = "600" ]
     [ "$(stat -c '%a' "$unit_path")" = "644" ]
+    [ "$(stat -c '%a' "$network_unit_path")" = "644" ]
     grep -Fq "ExecStart=${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6 serve" "$unit_path"
+    grep -Fq 'Requires=s12ryt-ipv6-network.service' "$unit_path"
     grep -Fq 'NoNewPrivileges=true' "$unit_path"
     grep -Fq "ReadWritePaths=${S12RYT_PROJECT_ROOT}" "$unit_path"
+    grep -Fq 'Type=oneshot' "$network_unit_path"
+    grep -Fq "ExecStart=${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6 restore-system" "$network_unit_path"
+    grep -Fq 'RemainAfterExit=yes' "$network_unit_path"
     grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
+    grep -Fxq 'systemctl enable s12ryt-ipv6-network.service' "$MOCK_LOG"
     grep -Fxq 'systemctl enable --now s12ryt-ipv6.service' "$MOCK_LOG"
     grep -Fxq 'panel init' "$MOCK_LOG"
 }
@@ -349,6 +357,7 @@ EOF
     local bundle="${TEST_ROOT}/verified-bundle"
     create_verified_ipv6_bundle "$bundle"
     local service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6"
+    local network_service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6-network"
     local logrotate_path="${TEST_ROOT}/etc/logrotate.d/s12ryt-ipv6"
 
     run /usr/bin/env \
@@ -356,18 +365,25 @@ EOF
         MOCK_LOG="$MOCK_LOG" \
         S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
         S12RYT_OPENRC_SERVICE_PATH="$service_path" \
+        S12RYT_OPENRC_NETWORK_SERVICE_PATH="$network_service_path" \
         S12RYT_LOGROTATE_PATH="$logrotate_path" \
         /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 openrc' _ \
         "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
 
     [ "$status" -eq 0 ]
     [ "$(stat -c '%a' "$service_path")" = "755" ]
+    [ "$(stat -c '%a' "$network_service_path")" = "755" ]
     [ "$(stat -c '%a' "$logrotate_path")" = "644" ]
     grep -Fq "command=\"${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6\"" "$service_path"
     grep -Fq 'command_args="serve"' "$service_path"
+    grep -Fq 'need s12ryt-ipv6-network' "$service_path"
+    grep -Fq "command=\"${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6\"" "$network_service_path"
+    grep -Fq 'command_args="restore-system"' "$network_service_path"
     grep -Fq 'rotate 7' "$logrotate_path"
     grep -Fq 'size 100M' "$logrotate_path"
+    grep -Fxq 'rc-update add s12ryt-ipv6-network default' "$MOCK_LOG"
     grep -Fxq 'rc-update add s12ryt-ipv6 default' "$MOCK_LOG"
+    grep -Fxq 'rc-service s12ryt-ipv6-network start' "$MOCK_LOG"
     grep -Fxq 'rc-service s12ryt-ipv6 start' "$MOCK_LOG"
 }
 
