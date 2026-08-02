@@ -893,6 +893,92 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	}
 }
 
+func TestRunApplicationListensOnIPv4AndConfiguredIPv6(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	configStore := store.NewConfigStore(paths.config)
+	config, err := configStore.Load()
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	config.Panel.ListenIPv6 = "2001:db8:100::20"
+	if err := configStore.Save(config); err != nil {
+		t.Fatalf("save configuration: %v", err)
+	}
+
+	listeners := []*stubListener{{}, {}}
+	servers := []*stubHTTPServer{newStubHTTPServer(), newStubHTTPServer()}
+	runtime := &stubRuntime{}
+	addresses := make([]string, 0, 2)
+	serverIndex := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	go func() {
+		done <- runApplication(ctx, runtimeOptions{
+			ConfigPath:        paths.config,
+			PasswordHashPath:  paths.passwordHash,
+			RuntimeStatePath:  paths.runtimeState,
+			RuntimeConfigPath: paths.runtimeConfig,
+			Entropy:           bytes.NewReader(bytes.Repeat([]byte{0x43}, 128)),
+			Clock:             func() time.Time { return time.Unix(1_800_000_000, 0) },
+			Runtime:           runtime,
+			ValidateRuntime:   func([]byte) error { return nil },
+			Listen: func(network string, address string) (net.Listener, error) {
+				if network != "tcp" {
+					return nil, fmt.Errorf("unexpected network %q", network)
+				}
+				if len(addresses) >= len(listeners) {
+					return nil, errors.New("too many listener calls")
+				}
+				addresses = append(addresses, address)
+				return listeners[len(addresses)-1], nil
+			},
+			NewHTTPServer: func(_ string, _ http.Handler) managedHTTPServer {
+				if serverIndex >= len(servers) {
+					return nil
+				}
+				server := servers[serverIndex]
+				serverIndex++
+				return server
+			},
+		})
+	}()
+
+	for index, server := range servers {
+		select {
+		case <-server.started:
+		case <-time.After(time.Second):
+			cancel()
+			<-done
+			t.Fatalf("HTTP server %d did not start", index)
+		}
+	}
+	if len(addresses) != 2 || addresses[0] != "0.0.0.0:34456" || addresses[1] != "[2001:db8:100::20]:34456" {
+		t.Fatalf("listen addresses = %#v", addresses)
+	}
+	if runtime.starts != 1 {
+		t.Fatalf("runtime starts = %d, want 1", runtime.starts)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runApplication returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runApplication did not stop after cancellation")
+	}
+	for index, server := range servers {
+		if !server.wasShutdown() {
+			t.Fatalf("HTTP server %d was not shut down gracefully", index)
+		}
+	}
+	if runtime.stops != 1 {
+		t.Fatalf("runtime stops = %d, want 1", runtime.stops)
+	}
+}
+
 type runtimePaths struct {
 	config        string
 	passwordHash  string
