@@ -20,7 +20,7 @@ type Discovery interface {
 }
 
 type Applier interface {
-	Apply(context.Context, manifest.Manifest) error
+	Upsert(context.Context, manifest.Manifest) error
 }
 
 type Request struct {
@@ -111,7 +111,7 @@ func (coordinator *Coordinator) Apply(ctx context.Context, request Request) (man
 	if err := candidate.Validate(); err != nil {
 		return manifest.Manifest{}, fmt.Errorf("validate generated network integration: %w", err)
 	}
-	if err := coordinator.applier.Apply(ctx, candidate); err != nil {
+	if err := coordinator.applier.Upsert(ctx, candidate); err != nil {
 		return manifest.Manifest{}, fmt.Errorf("apply network integration: %w", err)
 	}
 	return candidate, nil
