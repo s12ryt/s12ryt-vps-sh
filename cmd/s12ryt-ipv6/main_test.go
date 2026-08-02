@@ -23,6 +23,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
