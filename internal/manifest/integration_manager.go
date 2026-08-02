@@ -48,6 +48,27 @@ func (manager *IntegrationManager) Apply(ctx context.Context, candidate Manifest
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("check current integration manifest: %w", err)
 	}
+	return manager.applyCandidate(ctx, candidate)
+}
+
+func (manager *IntegrationManager) Upsert(ctx context.Context, candidate Manifest) error {
+	if ctx == nil {
+		return errors.New("integration upsert context is required")
+	}
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("validate integration upsert: %w", err)
+	}
+	current, err := manager.repository.Load()
+	if errors.Is(err, os.ErrNotExist) {
+		return manager.applyCandidate(ctx, candidate)
+	}
+	if err != nil {
+		return fmt.Errorf("load integration manifest for upsert: %w", err)
+	}
+	return manager.replaceCurrent(ctx, current, candidate)
+}
+
+func (manager *IntegrationManager) applyCandidate(ctx context.Context, candidate Manifest) error {
 	groups, err := buildIntegrationCommandGroups(candidate)
 	if err != nil {
 		return err
@@ -83,6 +104,10 @@ func (manager *IntegrationManager) Replace(ctx context.Context, candidate Manife
 	if err != nil {
 		return fmt.Errorf("load current integration manifest: %w", err)
 	}
+	return manager.replaceCurrent(ctx, current, candidate)
+}
+
+func (manager *IntegrationManager) replaceCurrent(ctx context.Context, current, candidate Manifest) error {
 	if err := current.Validate(); err != nil {
 		return fmt.Errorf("validate current integration manifest: %w", err)
 	}
