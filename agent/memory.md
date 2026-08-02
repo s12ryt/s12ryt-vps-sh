@@ -110,3 +110,13 @@
 - sing-box runtime compiler於 RED/GREEN runs `30735184303`/`30735266550` 完成 enabled domain node、resolved listener/TLS/transport與direct IPv6 outbound編譯。
 - sing-box配置檔交易首輪 `30735352446` 僅為gofmt失敗；有效RED `30735457626` 精確缺配置交易API，GREEN `30735551128` 完成prepare時編譯/驗證及0600原子Apply/Rollback。
 - `sing-box check -c` 驗證器首輪 `30735645723` 僅為gofmt失敗；有效RED `30735705782` 精確缺驗證器API，GREEN `30735785460` 完成受保護暫存檔、固定binary參數、錯誤保留與成功/失敗清理。
+- 完成 managed runtime、protected deployment state、節點/遠端出口交易、sing-box 程序監督與設定原子回滾；所有 Web mutation 會依序編譯、`sing-box check`、保存受保護 state/config、reload、health，失敗恢復舊狀態。三模式四拓撲與 route selector 已接入正式 compiler/runtime。
+- 完成遠端出口 canonical URI/JSON/Base64 匯入、root-only 持久化、masked API/UI、ordered IPv4 fallback；完成本機七協議 URI/client JSON、模式一完整 TUN split JSON/Base64、PNG QR、五分鐘敏感揭露及不外洩遠端秘密的聚合訂閱。
+- 完成系統整合 manifest、IPv6 discovery/pool、專用 policy route、ufw/firewalld/nftables、Apply/Replace/Restore/Remove/Upsert 交易，以及 boot restore service；binary `cleanup-system`/`restore-system` 與卸載順序確保先清專案狀態再移除服務。
+- 完成 CLI `reset-password` 與 `set-endpoint`：0600 PBKDF2 hash/明文密碼交易更新、session 由服務重啟撤銷；port/path/listen IPv6 變更會保存候選、重啟與健康檢查，最後替換 firewall，失敗回復舊端點。Bash 設定選單只委派 Go 交易命令，不旁路安全邊界。
+- 完成 ACME HTTP-01：sing-box v1.13.15 inline ACME schema、root-only state round-trip、TCP/80 可用性探測、panel preflight/runtime wiring及Web表單。固定 Let’s Encrypt、`/opt/s12ryt-ipv6/tls/acme`，拒 ACME 與靜態 cert/Reality 混用。
+- 建立 Playwright 1.62.1 桌面 Chromium與Pixel 7共10項瀏覽器契約；有效 run `30758435908` 揭露share expiry時間斷言與mobile grid重疊，修正後 run `30758706746` 通過登入、導覽、static modal、CSRF、分享/QR/copy清理、responsive/no-overlap/noCDN。
+- 建立 `scripts/build-release.sh` 與 GitHub Actions release-build：CGO disabled交叉編譯 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64`，產生並自驗 `SHA256SUMS`，原子publish並上傳artifact。GREEN run `30759325521`。
+- 建立真實資源門檻：固定 64 個 IPv6、28 個 VLESS nodes、真 panel 與固定 sing-box v1.13.15，無流量穩定60秒。過程以TDD修復tar listing SIGPIPE與跨Go thread的 `/proc/<pid>/task/*/children` 子程序偵測缺陷。
+- 最完整發行前證據為 GitHub Actions run `30761047569`：Go format/test/vet、Bash syntax、ShellCheck、96 Bats、README/LICENSE、Playwright desktop/mobile 10 tests、amd64/arm64 release build/checksum/upload、10個x86_64發行版容器及真實資源門檻全部通過。Ubuntu 24.04 runner實測 panel RSS `17400 KiB`、sing-box RSS `44472 KiB`，合計 `61872 KiB / 102400 KiB`，餘裕 `40528 KiB`。
+- v1.1.0 程式、資料平面、CLI與CI功能已完成；README、主腳本版本、自我更新文件驗收與正式 `v1.1.0` Release 尚待獨立 RED→GREEN 與發行驗證，未提前宣稱完成。
