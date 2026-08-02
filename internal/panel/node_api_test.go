@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 )
 
 func TestNodeListReturnsMaskedSummaries(t *testing.T) {
@@ -38,7 +41,7 @@ func TestNodeCreateRequiresCSRFConfirmationAndStrictInput(t *testing.T) {
 	manager := newFakeNodeManager()
 	server := newNodeAPIServer(t, manager)
 	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
-	payload := []byte(`{"id":"new-vmess","protocol":"vmess","port":25555,"enabled":true}`)
+	payload := []byte(`{"id":"new-vmess","protocol":"vmess","port":25555,"enabled":true,"deployment":{"listeners":["198.51.100.10"],"tls":{"enabled":false},"transport":{}}}`)
 
 	missingCSRF := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, "", "apply", payload)
 	if missingCSRF.Code != http.StatusForbidden {
@@ -56,6 +59,16 @@ func TestNodeCreateRequiresCSRFConfirmationAndStrictInput(t *testing.T) {
 	if len(manager.createCalls) != 0 {
 		t.Fatal("rejected create request reached node manager")
 	}
+	missingDeployment := []byte(`{"id":"missing-runtime","protocol":"vmess","port":25555,"enabled":true}`)
+	missing := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", missingDeployment)
+	if missing.Code != http.StatusBadRequest || len(manager.createCalls) != 0 {
+		t.Fatalf("missing deployment response = %d, calls = %#v", missing.Code, manager.createCalls)
+	}
+	unknownDeploymentField := []byte(`{"id":"unknown-runtime","protocol":"vmess","port":25555,"enabled":true,"deployment":{"listeners":["198.51.100.10"],"tls":{"enabled":false},"transport":{},"credential":"forbidden"}}`)
+	unknown := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", unknownDeploymentField)
+	if unknown.Code != http.StatusBadRequest || len(manager.createCalls) != 0 {
+		t.Fatalf("unknown deployment field response = %d, calls = %#v", unknown.Code, manager.createCalls)
+	}
 
 	created := performNodeRequest(t, server, http.MethodPost, "/api/nodes", cookie, csrfToken, "apply", payload)
 	if created.Code != http.StatusCreated || len(manager.createCalls) != 1 {
@@ -65,8 +78,12 @@ func TestNodeCreateRequiresCSRFConfirmationAndStrictInput(t *testing.T) {
 	if createCall.ID != "new-vmess" || createCall.Protocol != domain.ProtocolVMess || createCall.Port != 25555 || !createCall.Enabled {
 		t.Fatalf("create input = %#v", createCall)
 	}
-	if createCall.Deployment.NodeID != "" || len(createCall.Deployment.Listeners) != 0 {
-		t.Fatalf("legacy node payload unexpectedly supplied deployment data: %#v", createCall.Deployment)
+	wantDeployment := runtimeconfig.PersistedNodeDeployment{
+		NodeID:    "new-vmess",
+		Listeners: []netip.Addr{netip.MustParseAddr("198.51.100.10")},
+	}
+	if !reflect.DeepEqual(createCall.Deployment, wantDeployment) {
+		t.Fatalf("create deployment = %#v, want %#v", createCall.Deployment, wantDeployment)
 	}
 	if strings.Contains(created.Body.String(), `"credential"`) || strings.Contains(created.Body.String(), manager.config.Nodes[1].Credential.UUID) {
 		t.Fatalf("create response leaked credential: %s", created.Body.String())
