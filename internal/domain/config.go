@@ -53,6 +53,7 @@ type Config struct {
 type PanelConfig struct {
 	Port         int      `json:"port"`
 	Path         string   `json:"path"`
+	ListenIPv6   string   `json:"listen_ipv6,omitempty"`
 	AllowedCIDRs []string `json:"allowed_cidrs"`
 }
 
@@ -152,6 +153,13 @@ func (config Config) Validate() error {
 	}
 	if !webPathPattern.MatchString(config.Panel.Path) {
 		return errors.New("panel path must be one URL-safe segment")
+	}
+	if config.Panel.ListenIPv6 != "" {
+		address, err := netip.ParseAddr(config.Panel.ListenIPv6)
+		if err != nil || !address.Is6() || address.Is4In6() || !address.IsGlobalUnicast() ||
+			address.IsLoopback() || address.IsLinkLocalUnicast() {
+			return errors.New("panel listen IPv6 must be a global unicast IPv6 address")
+		}
 	}
 	for _, cidr := range config.Panel.AllowedCIDRs {
 		if _, err := netip.ParsePrefix(cidr); err != nil {
