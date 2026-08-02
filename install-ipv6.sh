@@ -631,7 +631,7 @@ configure_ipv6_project_state() {
 
 uninstall_ipv6_project_state() {
     local init_system="$1"
-    local project_root choice confirmation unit_path service_path logrotate_path
+    local project_root choice confirmation unit_path service_path logrotate_path panel_binary manifest_path
 
     project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
     if [[ "$project_root" != /* || "${project_root##*/}" != "s12ryt-ipv6" ]]; then
@@ -669,6 +669,18 @@ uninstall_ipv6_project_state() {
     if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
         printf '已取消多 IPv6 出站卸載。\n'
         return 0
+    fi
+
+    panel_binary="${project_root}/bin/s12ryt-ipv6"
+    manifest_path="${project_root}/state/integration.json"
+    if [[ -x "$panel_binary" ]]; then
+        if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" cleanup-system; then
+            printf '錯誤：系統整合狀態清理失敗，已停止卸載。\n' >&2
+            return 1
+        fi
+    elif [[ -e "$manifest_path" ]]; then
+        printf '錯誤：缺少管理面板執行檔，無法清理系統整合狀態，已停止卸載。\n' >&2
+        return 1
     fi
 
     if [[ "$init_system" == "systemd" ]]; then
