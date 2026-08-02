@@ -1178,7 +1178,93 @@ check_for_updates() {
 }
 
 show_projects() {
-    printf '暫無項目\n'
+    local choice
+
+    while true; do
+        cat <<'EOF'
+-----
+s12ryt 項目列表
+-----
+1. s12ryt-多ipv6出站
+0. 返回
+-----
+EOF
+        printf '輸入選項: '
+        if ! IFS= read -r choice; then
+            printf '\n'
+            return 0
+        fi
+        case "$choice" in
+            0)
+                return 0
+                ;;
+            1)
+                run_ipv6_project_menu || true
+                ;;
+            *)
+                printf '無效選項，請重新輸入。\n' >&2
+                ;;
+        esac
+    done
+}
+
+install_ipv6_project() {
+    not_implemented
+}
+
+update_ipv6_project() {
+    not_implemented
+}
+
+configure_ipv6_project() {
+    not_implemented
+}
+
+uninstall_ipv6_project() {
+    not_implemented
+}
+
+run_ipv6_project_menu() {
+    local choice
+
+    while true; do
+        cat <<'EOF'
+-----
+s12ryt特供-多ipv6出站（web管理面板）
+-----
+1. 安裝
+2. 更新
+3. 設定
+4. 卸載
+0. 退出
+-----
+EOF
+        printf '輸入選項: '
+        if ! IFS= read -r choice; then
+            printf '\n'
+            return 0
+        fi
+        case "$choice" in
+            0)
+                return 0
+                ;;
+            1)
+                install_ipv6_project || true
+                ;;
+            2)
+                update_ipv6_project || true
+                ;;
+            3)
+                configure_ipv6_project || true
+                ;;
+            4)
+                uninstall_ipv6_project || true
+                ;;
+            *)
+                printf '無效選項，請重新輸入。\n' >&2
+                ;;
+        esac
+    done
 }
 
 install_downloaded_bootstrap() {

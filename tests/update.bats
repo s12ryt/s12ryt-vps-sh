@@ -159,12 +159,7 @@ EOF
     grep -Fq 'old-version' "$UPDATE_TARGET"
 }
 
-@test "項目列表固定顯示暫無項目且主選單 8 與 11 各自接線" {
-    run env S12RYT_SOURCE_ONLY=1 /bin/bash -c 'source "$1"; show_projects' _ \
-        "${PROJECT_ROOT}/s12ryt.sh"
-    [ "$status" -eq 0 ]
-    [ "$output" = "暫無項目" ]
-
+@test "主選單 8 與 11 各自接線" {
     run env HOME="$HOME" S12RYT_SOURCE_ONLY=1 /bin/bash -c '
         source "$1"
         install_launcher() { :; }
