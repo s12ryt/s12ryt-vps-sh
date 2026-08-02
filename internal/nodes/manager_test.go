@@ -135,6 +135,32 @@ func TestManagerKeepsCurrentStateWhenPersistenceFails(t *testing.T) {
 	}
 }
 
+func TestManagerReplaceConfigPreservesManagedNodes(t *testing.T) {
+	store := &recordingStore{}
+	manager := newTestManager(t, store, func() (int, error) { return 24443, nil })
+	if _, err := manager.Create(CreateInput{ID: "edge-vless", Protocol: domain.ProtocolVLESS}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	candidate := manager.Snapshot()
+	candidate.Routing.Mode = domain.RoutingModeIPv6Only
+	if err := manager.ReplaceConfig(candidate); err != nil {
+		t.Fatalf("ReplaceConfig() error = %v", err)
+	}
+	if manager.Snapshot().Routing.Mode != domain.RoutingModeIPv6Only {
+		t.Fatal("replacement routing mode was not stored")
+	}
+
+	tampered := manager.Snapshot()
+	tampered.Nodes[0].Credential.UUID = "00000000-0000-4000-8000-000000000000"
+	if err := manager.ReplaceConfig(tampered); err == nil {
+		t.Fatal("ReplaceConfig() accepted a credential change")
+	}
+	if manager.Snapshot().Nodes[0].Credential == tampered.Nodes[0].Credential {
+		t.Fatal("rejected credential change reached current state")
+	}
+}
+
 func newTestManager(t *testing.T, store ConfigStore, allocator func() (int, error)) *Manager {
 	t.Helper()
 	manager, err := NewManager(ManagerOptions{
