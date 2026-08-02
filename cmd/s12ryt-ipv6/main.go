@@ -22,6 +22,7 @@ import (
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
 
@@ -217,7 +218,8 @@ func initializeProject(options initializationOptions) (initializationResult, err
 	configPath := filepath.Join(options.ProjectRoot, "config", "config.json")
 	passwordHashPath := filepath.Join(options.ProjectRoot, "secrets", "password.hash")
 	plainPasswordPath := filepath.Join(options.ProjectRoot, "secrets", "management.password")
-	for _, path := range []string{configPath, passwordHashPath, plainPasswordPath} {
+	runtimeStatePath := filepath.Join(options.ProjectRoot, "state", "runtime.json")
+	for _, path := range []string{configPath, passwordHashPath, plainPasswordPath, runtimeStatePath} {
 		if _, err := os.Lstat(path); err == nil {
 			return initializationResult{}, fmt.Errorf("初始化狀態已存在：%s", path)
 		} else if !os.IsNotExist(err) {
@@ -238,8 +240,32 @@ func initializeProject(options initializationOptions) (initializationResult, err
 	if err := store.NewConfigStore(configPath).Save(config); err != nil {
 		return initializationResult{}, fmt.Errorf("建立初始設定：%w", err)
 	}
-	if err := writeProtectedPasswordHash(passwordHashPath, passwordHash); err != nil {
+	runtimeStateStore, err := runtimeconfig.NewDeploymentStateStore(runtimeStatePath)
+	if err != nil {
 		cleanupErr := errors.Join(removeInitializationFile(configPath), removeInitializationFile(configPath+".bak"))
+		return initializationResult{}, errors.Join(fmt.Errorf("建立執行狀態儲存：%w", err), cleanupInitializationError(cleanupErr))
+	}
+	initialRuntimeState := runtimeconfig.DeploymentState{
+		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
+		Nodes:         make([]runtimeconfig.PersistedNodeDeployment, 0),
+		IPv6Outbounds: make([]netip.Addr, 0),
+	}
+	if err := runtimeStateStore.Save(initialRuntimeState); err != nil {
+		cleanupErr := errors.Join(
+			removeInitializationFile(configPath),
+			removeInitializationFile(configPath+".bak"),
+			removeInitializationFile(runtimeStatePath),
+			removeInitializationFile(runtimeStatePath+".bak"),
+		)
+		return initializationResult{}, errors.Join(fmt.Errorf("建立初始執行狀態：%w", err), cleanupInitializationError(cleanupErr))
+	}
+	if err := writeProtectedPasswordHash(passwordHashPath, passwordHash); err != nil {
+		cleanupErr := errors.Join(
+			removeInitializationFile(configPath),
+			removeInitializationFile(configPath+".bak"),
+			removeInitializationFile(runtimeStatePath),
+			removeInitializationFile(runtimeStatePath+".bak"),
+		)
 		if cleanupErr != nil {
 			return initializationResult{}, errors.Join(fmt.Errorf("建立管理密碼雜湊：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
 		}
@@ -250,6 +276,8 @@ func initializeProject(options initializationOptions) (initializationResult, err
 			removeInitializationFile(passwordHashPath),
 			removeInitializationFile(configPath),
 			removeInitializationFile(configPath+".bak"),
+			removeInitializationFile(runtimeStatePath),
+			removeInitializationFile(runtimeStatePath+".bak"),
 		)
 		if cleanupErr != nil {
 			return initializationResult{}, errors.Join(fmt.Errorf("保存管理密碼：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
@@ -257,6 +285,13 @@ func initializeProject(options initializationOptions) (initializationResult, err
 		return initializationResult{}, fmt.Errorf("保存管理密碼：%w", err)
 	}
 	return initializationResult{Password: secrets.Password, WebPath: secrets.WebPath, Port: config.Panel.Port}, nil
+}
+
+func cleanupInitializationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("清理未完成設定：%w", err)
 }
 
 func writeProtectedPasswordHash(path string, passwordHash string) error {
