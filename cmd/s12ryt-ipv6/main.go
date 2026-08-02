@@ -114,6 +114,9 @@ func runCommand(arguments []string, options commandOptions) error {
 		}
 		return printProjectStatus(options.ProjectRoot, options.Output, options.Addresses)
 	}
+	if len(arguments) == 1 && arguments[0] == "health-url" {
+		return printHealthURL(options.ProjectRoot, options.Output)
+	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
 		return runApplication(options.Context, runtimeOptions{
 			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
@@ -121,7 +124,16 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:          options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve|status]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url]")
+}
+
+func printHealthURL(projectRoot string, output io.Writer) error {
+	config, err := store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")).Load()
+	if err != nil {
+		return fmt.Errorf("讀取面板設定：%w", err)
+	}
+	fmt.Fprintf(output, "http://127.0.0.1:%d%s/healthz\n", config.Panel.Port, config.Panel.Path)
+	return nil
 }
 
 func printProjectStatus(projectRoot string, output io.Writer, addresses func() ([]netip.Addr, error)) error {
