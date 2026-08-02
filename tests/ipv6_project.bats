@@ -4,6 +4,8 @@ load test_helper
 
 setup() {
     setup_sandbox
+    setup_mock_bin
+    export PATH="${MOCK_BIN}:/usr/bin:/bin"
 }
 
 @test "項目列表顯示多 IPv6 出站並可進入後返回" {
@@ -44,4 +46,28 @@ setup() {
     [[ "$output" == *"configure-ipv6-called"* ]]
     [[ "$output" == *"uninstall-ipv6-called"* ]]
     [[ "$output" == *"無效選項"* ]]
+}
+
+@test "安裝入口會驗證並原子保存 IPv6 helper 後執行 install" {
+    local helper_source="${TEST_ROOT}/install-ipv6-source.sh"
+    local helper_target="${TEST_ROOT}/stable/install-ipv6.sh"
+    cat > "$helper_source" <<'EOF'
+#!/bin/bash
+printf 'ipv6-helper %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod 0644 "$helper_source"
+
+    run /usr/bin/env \
+        HOME="$HOME" \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_SOURCE_ONLY=1 \
+        S12RYT_IPV6_HELPER_SOURCE="$helper_source" \
+        S12RYT_IPV6_HELPER_PATH="$helper_target" \
+        /bin/bash -c 'source "$1"; install_ipv6_project' _ \
+        "${PROJECT_ROOT}/s12ryt.sh"
+
+    [ "$status" -eq 0 ]
+    [ -x "$helper_target" ]
+    grep -Fxq 'ipv6-helper install' "$MOCK_LOG"
 }
