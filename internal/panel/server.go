@@ -61,11 +61,14 @@ func (server *Server) Handler() http.Handler {
 }
 
 func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Request) {
+	setSecurityHeaders(response)
 	switch {
 	case request.Method == http.MethodGet && request.URL.Path == server.basePath:
 		server.showPanel(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/login":
 		server.handleLogin(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/logout":
+		server.handleLogout(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/config/validate":
 		server.validateConfigRequest(response, request)
 	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/api/config":
@@ -77,6 +80,14 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 	}
 }
 
+func setSecurityHeaders(response http.ResponseWriter) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	response.Header().Set("Referrer-Policy", "no-referrer")
+	response.Header().Set("X-Content-Type-Options", "nosniff")
+	response.Header().Set("X-Frame-Options", "DENY")
+}
+
 func (server *Server) showPanel(response http.ResponseWriter, request *http.Request) {
 	session, authenticated := server.requestSession(request)
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -85,7 +96,13 @@ func (server *Server) showPanel(response http.ResponseWriter, request *http.Requ
 		_, _ = fmt.Fprintf(response, loginPage, html.EscapeString(server.basePath+"/login"))
 		return
 	}
-	_, _ = fmt.Fprintf(response, dashboardPage, html.EscapeString(session.CSRFToken))
+	_, _ = fmt.Fprintf(
+		response,
+		dashboardPage,
+		html.EscapeString(session.CSRFToken),
+		html.EscapeString(server.basePath+"/logout"),
+		html.EscapeString(session.CSRFToken),
+	)
 }
 
 func (server *Server) handleLogin(response http.ResponseWriter, request *http.Request) {
@@ -121,6 +138,41 @@ func (server *Server) handleLogin(response http.ResponseWriter, request *http.Re
 		HttpOnly: true,
 		Secure:   false,
 		SameSite: http.SameSiteStrictMode,
+	})
+	http.Redirect(response, request, server.basePath, http.StatusSeeOther)
+}
+
+func (server *Server) handleLogout(response http.ResponseWriter, request *http.Request) {
+	cookie, err := request.Cookie(SessionCookieName)
+	if err != nil {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	clientIP := requestClientIP(request)
+	session, valid := server.sessions.Lookup(cookie.Value, clientIP)
+	if !valid {
+		http.Error(response, "登入工作階段無效。", http.StatusUnauthorized)
+		return
+	}
+	csrfToken := request.Header.Get("X-CSRF-Token")
+	if csrfToken == "" {
+		if err := request.ParseForm(); err == nil {
+			csrfToken = request.FormValue("csrf_token")
+		}
+	}
+	if !server.sessions.Validate(cookie.Value, csrfToken, clientIP) {
+		http.Error(response, "CSRF 驗證失敗。", http.StatusForbidden)
+		return
+	}
+	server.sessions.Revoke(session.Token)
+	http.SetCookie(response, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    "",
+		Path:     server.basePath,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
 	})
 	http.Redirect(response, request, server.basePath, http.StatusSeeOther)
 }
@@ -258,6 +310,6 @@ const dashboardPage = `<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="%s">
 <title>s12ryt IPv6 管理面板</title><style>
 :root{--ink:#111719;--paper:#eef1ee;--panel:#fff;--line:#aab2ad;--accent:#087f5b;--signal:#d9480f}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Georgia,"Noto Serif TC",serif}.shell{max-width:1180px;margin:auto;padding:20px}.masthead{display:flex;justify-content:space-between;align-items:end;border-bottom:3px solid var(--ink);padding:12px 0}.masthead h1{margin:0;font-size:26px}.status{font:12px Consolas,monospace;color:var(--accent)}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);margin:20px 0;border:1px solid var(--line)}nav button{border:0;background:var(--panel);padding:16px;text-align:left;font-weight:700;cursor:pointer}nav button:hover{background:#dfe9e2;color:#075d43}.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}.work,.telemetry{background:var(--panel);border:1px solid var(--line);padding:20px}.work h2,.telemetry h2{margin-top:0}.warning{color:var(--signal)}.modal[hidden]{display:none}.modal{position:fixed;inset:0;background:rgba(17,23,25,.62);display:grid;place-items:center;padding:20px}.dialog{width:min(560px,100%%);background:#fff;border-top:6px solid var(--accent);padding:24px}.dialog button{padding:10px 16px;border:0;background:var(--ink);color:#fff}@media(max-width:720px){.grid{grid-template-columns:1fr}nav{grid-template-columns:1fr}.masthead{align-items:start;flex-direction:column;gap:6px}}</style></head>
-<body><main class="shell"><header class="masthead"><h1>s12ryt 多 IPv6 出站</h1><span class="status">PANEL ONLINE / PUBLIC HTTP</span></header><p class="warning">公開 HTTP 不提供傳輸加密，請限制允許來源。</p><nav aria-label="設定導覽"><button type="button">出口模式</button><button type="button">拓撲</button><button type="button" data-modal-open>協議</button></nav><section class="grid"><article class="work"><h2>設定工作區</h2><p>選擇上方分類以管理 IPv6 出站策略與節點。</p></article><aside class="telemetry"><h2>狀態</h2><p>IPv6 池與 sing-box 驗證資訊將顯示於此。</p></aside></section></main><div class="modal" data-modal-backdrop="static" hidden><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title"><h2 id="modal-title">協議設定</h2><p>VLESS、VMess、Hysteria2、TUIC、SOCKS5、AnyTLS、Shadowsocks</p><button type="button" data-modal-close="button">關閉</button><span data-modal-close="escape" hidden></span></section></div><script>
+<body><main class="shell"><header class="masthead"><h1>s12ryt 多 IPv6 出站</h1><div><span class="status">PANEL ONLINE / PUBLIC HTTP</span><form method="post" action="%s"><input type="hidden" name="csrf_token" value="%s"><button type="submit">登出</button></form></div></header><p class="warning">公開 HTTP 不提供傳輸加密，請限制允許來源。</p><nav aria-label="設定導覽"><button type="button">出口模式</button><button type="button">拓撲</button><button type="button" data-modal-open>協議</button></nav><section class="grid"><article class="work"><h2>設定工作區</h2><p>選擇上方分類以管理 IPv6 出站策略與節點。</p></article><aside class="telemetry"><h2>狀態</h2><p>IPv6 池與 sing-box 驗證資訊將顯示於此。</p></aside></section></main><div class="modal" data-modal-backdrop="static" hidden><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title"><h2 id="modal-title">協議設定</h2><p>VLESS、VMess、Hysteria2、TUIC、SOCKS5、AnyTLS、Shadowsocks</p><button type="button" data-modal-close="button">關閉</button><span data-modal-close="escape" hidden></span></section></div><script>
 const modal=document.querySelector('.modal');document.querySelector('[data-modal-open]').addEventListener('click',()=>{modal.hidden=false});document.querySelector('[data-modal-close="button"]').addEventListener('click',()=>{modal.hidden=true});document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){modal.hidden=true}});
 </script></body></html>`

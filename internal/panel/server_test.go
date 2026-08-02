@@ -176,6 +176,8 @@ func TestDashboardUsesRequiredNavigationOrderAndModalContract(t *testing.T) {
 		`data-modal-close="button"`,
 		`data-modal-close="escape"`,
 		`name="csrf-token"`,
+		`action="/abcdefghijkl/logout"`,
+		`name="csrf_token"`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("dashboard missing %q", expected)
