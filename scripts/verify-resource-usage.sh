@@ -108,6 +108,7 @@ verify_resource_usage() {
   local archive_path
   local extracted_binary
   local actual_digest
+  local archive_listing
   local address
   local health_response=""
   local attempt
@@ -157,7 +158,11 @@ verify_resource_usage() {
     return 1
   fi
   extracted_binary="sing-box-${RESOURCE_SING_BOX_VERSION}-linux-amd64/sing-box"
-  if ! tar -tzf "$archive_path" | grep -Fxq "$extracted_binary"; then
+  if ! archive_listing="$(tar -tzf "$archive_path")"; then
+    printf '錯誤：無法讀取 sing-box 資源驗收壓縮檔。\n' >&2
+    return 1
+  fi
+  if ! grep -Fxq "$extracted_binary" <<<"$archive_listing"; then
     printf '錯誤：sing-box 資源驗收壓縮檔結構無效。\n' >&2
     return 1
   fi
@@ -227,6 +232,7 @@ verify_resource_usage() {
   done
   if [[ -z "$sing_box_pid" ]]; then
     printf '錯誤：找不到受面板管理的 sing-box 程序。\n' >&2
+    cat "$panel_log" >&2
     return 1
   fi
 
