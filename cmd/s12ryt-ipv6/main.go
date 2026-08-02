@@ -495,14 +495,15 @@ func loadApplication(options runtimeOptions) (application, error) {
 		return application{}, fmt.Errorf("建立節點管理服務：%w", err)
 	}
 	server := panel.NewServer(panel.Options{
-		BasePath:     config.Panel.Path,
-		PasswordHash: passwordHash,
-		Hasher:       hasher,
-		Sessions:     sessions,
-		Limiter:      limiter,
-		Config:       config,
-		Store:        configStore,
-		NodeManager:  nodeManager,
+		BasePath:      config.Panel.Path,
+		PasswordHash:  passwordHash,
+		Hasher:        hasher,
+		Sessions:      sessions,
+		Limiter:       limiter,
+		Config:        config,
+		Store:         configStore,
+		NodeManager:   nodeManager,
+		RemoteManager: nodeManager,
 	})
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
