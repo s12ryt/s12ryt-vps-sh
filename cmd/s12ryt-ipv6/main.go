@@ -240,14 +240,14 @@ func runCommand(arguments []string, options commandOptions) error {
 		return nil
 	}
 	if len(arguments) >= 1 && arguments[0] == "set-endpoint" {
-		if len(arguments) != 6 {
+		if len(arguments) != 5 {
 			return errors.New("用法：s12ryt-ipv6 set-endpoint PORT WEB_PATH LISTEN_IPV6|- systemd|openrc")
 		}
 		port, err := strconv.Atoi(arguments[1])
 		if err != nil {
 			return fmt.Errorf("管理面板埠必須是整數：%w", err)
 		}
-		initSystem := arguments[5]
+		initSystem := arguments[4]
 		if initSystem != "systemd" && initSystem != "openrc" {
 			return errors.New("管理面板端點更新只支援 systemd 或 OpenRC")
 		}
