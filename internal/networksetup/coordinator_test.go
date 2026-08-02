@@ -36,7 +36,7 @@ func TestCoordinatorDiscoversGeneratesAndAppliesProtectedIntegrationManifest(t *
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
-	if !reflect.DeepEqual(events, []string{"addresses", "gateway:eth0", "apply"}) {
+	if !reflect.DeepEqual(events, []string{"addresses", "gateway:eth0", "upsert"}) {
 		t.Fatalf("events = %#v", events)
 	}
 	want := manifest.Manifest{
@@ -202,9 +202,9 @@ type recordingApplier struct {
 	err     error
 }
 
-func (applier *recordingApplier) Apply(_ context.Context, value manifest.Manifest) error {
+func (applier *recordingApplier) Upsert(_ context.Context, value manifest.Manifest) error {
 	if applier.events != nil {
-		*applier.events = append(*applier.events, "apply")
+		*applier.events = append(*applier.events, "upsert")
 	}
 	applier.applied = value
 	return applier.err
