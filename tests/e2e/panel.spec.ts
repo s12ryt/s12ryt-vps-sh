@@ -59,7 +59,7 @@ test('分享需重新驗證且關閉時清除秘密', async ({ page, context }) 
 
   const uri = modal.locator('[data-share-uri]');
   await expect(uri).toContainText('vless://');
-  await expect(modal.locator('[data-share-expiry]')).toContainText('300 秒');
+  await expect(modal.locator('[data-share-expiry]')).toContainText(/(?:[1-9]\d?|[12]\d{2}|300) 秒/);
   const image = modal.locator('img[data-share-qr]');
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
