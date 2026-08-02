@@ -125,7 +125,7 @@ func TestAggregateSubscriptionContainsOnlyEnabledHealthyLocalNodes(t *testing.T)
 func TestClientIPv4ModeBuildsCompleteSplitRoutingConfiguration(t *testing.T) {
 	node := completeNode(domain.ProtocolVLESS, 25555)
 	input := Input{
-		LocalNodes: []LocalNode{node},
+		LocalNodes:  []LocalNode{node},
 		RoutingMode: domain.RoutingModeClientIPv4,
 	}
 
