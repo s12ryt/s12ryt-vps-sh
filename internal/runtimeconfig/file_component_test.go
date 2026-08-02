@@ -93,8 +93,7 @@ func TestFileComponentRejectsCandidateBeforeMutatingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileComponent() error = %v", err)
 	}
-	if _, err := component.Prepare(context.Background(), domain.DefaultConfig(), configuredRuntimeConfig());
-		!errors.Is(err, wantErr) {
+	if _, err := component.Prepare(context.Background(), domain.DefaultConfig(), configuredRuntimeConfig()); !errors.Is(err, wantErr) {
 		t.Fatalf("Prepare() error = %v, want errors.Is(%v)", err, wantErr)
 	}
 	contents, err := os.ReadFile(path)
@@ -113,8 +112,8 @@ func TestNewFileComponentRejectsUnsafeDependencies(t *testing.T) {
 		Validate: func([]byte) error { return nil },
 	}
 	for name, mutate := range map[string]func(*FileComponentOptions){
-		"relative path": func(options *FileComponentOptions) { options.Path = "sing-box.json" },
-		"missing resolver": func(options *FileComponentOptions) { options.Resolve = nil },
+		"relative path":     func(options *FileComponentOptions) { options.Path = "sing-box.json" },
+		"missing resolver":  func(options *FileComponentOptions) { options.Resolve = nil },
 		"missing validator": func(options *FileComponentOptions) { options.Validate = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
