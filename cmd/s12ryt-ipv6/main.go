@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
@@ -23,6 +25,7 @@ import (
 
 const defaultConfigPath = "/opt/s12ryt-ipv6/config/config.json"
 const defaultPasswordHashPath = "/opt/s12ryt-ipv6/secrets/password.hash"
+const defaultProjectRoot = "/opt/s12ryt-ipv6"
 const shutdownTimeout = 10 * time.Second
 
 type managedHTTPServer interface {
@@ -46,6 +49,24 @@ type application struct {
 	handler http.Handler
 }
 
+type initializationOptions struct {
+	ProjectRoot string
+	Entropy     io.Reader
+}
+
+type initializationResult struct {
+	Password string
+	WebPath  string
+	Port     int
+}
+
+type commandOptions struct {
+	ProjectRoot string
+	Entropy     io.Reader
+	Output      io.Writer
+	Context     context.Context
+}
+
 func main() {
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "錯誤：s12ryt IPv6 管理面板必須以 root 執行。")
@@ -53,10 +74,142 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runApplication(ctx, runtimeOptions{}); err != nil {
+	if err := runCommand(os.Args[1:], commandOptions{Context: ctx, Output: os.Stdout}); err != nil {
 		fmt.Fprintln(os.Stderr, "錯誤：", err)
 		os.Exit(1)
 	}
+}
+
+func runCommand(arguments []string, options commandOptions) error {
+	if options.ProjectRoot == "" {
+		options.ProjectRoot = defaultProjectRoot
+	}
+	if options.Entropy == nil {
+		options.Entropy = rand.Reader
+	}
+	if options.Output == nil {
+		options.Output = os.Stdout
+	}
+	if options.Context == nil {
+		options.Context = context.Background()
+	}
+
+	if len(arguments) == 1 && arguments[0] == "init" {
+		result, err := initializeProject(initializationOptions{
+			ProjectRoot: options.ProjectRoot,
+			Entropy:     options.Entropy,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(options.Output, "初始管理密碼：%s\nWeb 路徑：%s\n管理埠：%d\n", result.Password, result.WebPath, result.Port)
+		return nil
+	}
+	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
+		return runApplication(options.Context, runtimeOptions{
+			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
+			PasswordHashPath: filepath.Join(options.ProjectRoot, "secrets", "password.hash"),
+			Entropy:          options.Entropy,
+		})
+	}
+	return errors.New("用法：s12ryt-ipv6 [init|serve]")
+}
+
+func initializeProject(options initializationOptions) (initializationResult, error) {
+	if options.ProjectRoot == "" {
+		options.ProjectRoot = defaultProjectRoot
+	}
+	if options.Entropy == nil {
+		options.Entropy = rand.Reader
+	}
+
+	configPath := filepath.Join(options.ProjectRoot, "config", "config.json")
+	passwordHashPath := filepath.Join(options.ProjectRoot, "secrets", "password.hash")
+	for _, path := range []string{configPath, passwordHashPath} {
+		if _, err := os.Lstat(path); err == nil {
+			return initializationResult{}, fmt.Errorf("初始化狀態已存在：%s", path)
+		} else if !os.IsNotExist(err) {
+			return initializationResult{}, fmt.Errorf("檢查初始化狀態 %s：%w", path, err)
+		}
+	}
+
+	secrets, err := domain.GenerateBootstrapSecrets(options.Entropy)
+	if err != nil {
+		return initializationResult{}, fmt.Errorf("產生初始管理資料：%w", err)
+	}
+	passwordHash, err := auth.NewPasswordHasher(options.Entropy).Hash(secrets.Password)
+	if err != nil {
+		return initializationResult{}, fmt.Errorf("建立管理密碼雜湊：%w", err)
+	}
+	config := domain.DefaultConfig()
+	config.Panel.Path = secrets.WebPath
+	if err := store.NewConfigStore(configPath).Save(config); err != nil {
+		return initializationResult{}, fmt.Errorf("建立初始設定：%w", err)
+	}
+	if err := writeProtectedPasswordHash(passwordHashPath, passwordHash); err != nil {
+		cleanupErr := errors.Join(removeInitializationFile(configPath), removeInitializationFile(configPath+".bak"))
+		if cleanupErr != nil {
+			return initializationResult{}, errors.Join(fmt.Errorf("建立管理密碼雜湊：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
+		}
+		return initializationResult{}, fmt.Errorf("建立管理密碼雜湊：%w", err)
+	}
+	return initializationResult{Password: secrets.Password, WebPath: secrets.WebPath, Port: config.Panel.Port}, nil
+}
+
+func writeProtectedPasswordHash(path string, passwordHash string) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("建立機密目錄：%w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return fmt.Errorf("保護機密目錄：%w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".password-hash.*")
+	if err != nil {
+		return fmt.Errorf("建立密碼雜湊暫存檔：%w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("保護密碼雜湊暫存檔：%w", err)
+	}
+	if _, err := io.WriteString(temporary, passwordHash+"\n"); err != nil {
+		temporary.Close()
+		return fmt.Errorf("寫入密碼雜湊暫存檔：%w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return fmt.Errorf("同步密碼雜湊暫存檔：%w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("關閉密碼雜湊暫存檔：%w", err)
+	}
+	if err := os.Link(temporaryPath, path); err != nil {
+		return fmt.Errorf("安裝密碼雜湊：%w", err)
+	}
+	if err := syncRuntimeDirectory(directory); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("同步機密目錄：%w", err)
+	}
+	return nil
+}
+
+func removeInitializationFile(path string) error {
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func syncRuntimeDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func loadApplication(options runtimeOptions) (application, error) {
