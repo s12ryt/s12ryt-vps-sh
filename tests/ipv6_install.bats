@@ -506,6 +506,7 @@ EOF
     [ -s "${S12RYT_PROJECT_ROOT}/config/config.json" ]
     [ -s "${S12RYT_PROJECT_ROOT}/secrets/management.password" ]
     [ -s "${S12RYT_PROJECT_ROOT}/backups/update.saved/sentinel" ]
+    [ "$(head -n 1 "$MOCK_LOG")" = "old-panel cleanup-system" ]
     grep -Fxq 'systemctl disable --now s12ryt-ipv6.service' "$MOCK_LOG"
     grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
 }
@@ -533,8 +534,41 @@ EOF
     [ ! -e "$S12RYT_PROJECT_ROOT" ]
     [ ! -e "$service_path" ]
     [ ! -e "$logrotate_path" ]
+    [ "$(head -n 1 "$MOCK_LOG")" = "old-panel cleanup-system" ]
     grep -Fxq 'rc-service s12ryt-ipv6 stop' "$MOCK_LOG"
     grep -Fxq 'rc-update del s12ryt-ipv6 default' "$MOCK_LOG"
+}
+
+@test "系統整合清理失敗時停止卸載並保留服務與資料" {
+    create_installed_ipv6_project
+    cat > "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" <<'EOF'
+#!/bin/bash
+printf 'old-panel %s\n' "$*" >> "$MOCK_LOG"
+if [[ "${1:-}" == "cleanup-system" ]]; then
+    exit 1
+fi
+EOF
+    chmod 0755 "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
+    create_command_mock systemctl
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    mkdir -p "${unit_path%/*}" "${S12RYT_PROJECT_ROOT}/state"
+    printf 'unit-sentinel\n' > "$unit_path"
+    printf 'manifest-sentinel\n' > "${S12RYT_PROJECT_ROOT}/state/integration.json"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; printf "2\ny\n" | uninstall_ipv6_project_state systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"系統整合狀態清理失敗，已停止卸載"* ]]
+    [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    [ -s "${S12RYT_PROJECT_ROOT}/state/integration.json" ]
+    [ -s "$unit_path" ]
+    [ "$(cat "$MOCK_LOG")" = "old-panel cleanup-system" ]
 }
 
 @test "拒絕卸載確認時完全不修改服務與專案資料" {
