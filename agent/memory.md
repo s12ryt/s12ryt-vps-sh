@@ -84,3 +84,11 @@
 - Web/Go/Playwright、Go test/vet、Bats、ShellCheck、Bash語法、資源基準與cross-build全部只在GitHub-hosted Actions；不在本機執行Go/Bash測試，不宣稱真實VPS或arm64實機已驗證。
 - 建立嚴格設定 validate/apply/get API 契約；run `30724420110` 精確因 `ConfigStore` 與 server store 尚不存在而 RED，完成 1 MiB 限制、未知欄位拒絕、domain 驗證、明確 apply 確認及持久化後，run `30724503372` 通過 Go format/test/vet、既有 Bash 與 10 發行版 smoke。
 - 建立單一 session 撤銷、CSRF 登出、cookie 清除與全回應安全標頭契約；首輪 run `30724625550` 僅暴露測試 gofmt 差異，修正後 run `30724685770` 因 `Revoke`、安全標頭及 logout 尚不存在而有效 RED。完成實作並修正 deterministic fixture 產生重複 token 的隔離問題後，run `30724842014` 全綠。
+- IPv6 池規劃在 RED run `30725007507` 精確缺少解析、gateway、生成及命令計畫 API；完成 global IPv6 過濾、完整格式、唯一 gateway、安全隨機持久池與只觸及專案地址的命令計畫後，GREEN run `30725098657` 經 registry timeout job 重跑後全綠。
+- sing-box 基本七協議、雙棧 listener 與 direct IPv6 outbound 契約於 RED run `30725286094` 失敗，實作後 GREEN run `30725422410` 全綠；VLESS/VMess transport 與 Reality 的 RED/GREEN runs 為 `30726875430`/`30727010898`。
+- 出口 selector 於 RED run `30725568178` 缺少輪換與健康狀態 API，GREEN run `30725647960` 完成只影響後續選擇的週期輪換、三次失敗 fallback、三次成功恢復及錯位起點。
+- 遠端 outbound 匯入於 RED/GREEN runs `30725744448`/`30725841673` 完成七協議 URI、單一 JSON、最多 1 MiB/1000 節點 Base64 內容、去重及 SOCKS/HTTP 明確授權，且不追蹤遠端訂閱 URL。
+- panel runtime 入口於 RED/GREEN runs `30725980344`/`30726067750` 完成 root-only 設定與密碼檔載入、雙棧監聽及 context graceful shutdown；service plan 的 RED/GREEN runs 為 `30726187017`/`30726274820`，涵蓋 systemd/OpenRC、logrotate 與移除計畫。
+- 防火牆規劃於 RED/GREEN runs `30726551004`/`30726716194` 完成 active backend 唯一判定、ufw/firewalld/nftables 專案標記與最小 TCP/UDP 規則，保持純計畫、不直接修改系統。
+- 本機分享輸出於 RED run `30727208080` 缺少分享模型，GREEN run `30727297029` 完成七協議 URI、client JSON、QR payload 及只含 enabled/healthy 本機節點的 standard Base64 訂閱，遠端秘密不參與輸出。
+- 健康排程於 RED run `30727501631` 精確缺少 monitor/probe/ticker API；GREEN run `30727608410` 完成每輪全候選檢查、每請求 timeout、立即與週期執行、取消停止及 selector 健康回饋，全套 Go/Bash/文件與 10 發行版 smoke 通過。
