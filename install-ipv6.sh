@@ -629,6 +629,87 @@ configure_ipv6_project_state() {
     S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" status
 }
 
+uninstall_ipv6_project_state() {
+    local init_system="$1"
+    local project_root choice confirmation unit_path service_path logrotate_path
+
+    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
+    if [[ "$project_root" != /* || "${project_root##*/}" != "s12ryt-ipv6" ]]; then
+        printf '錯誤：IPv6 專案根目錄不安全，拒絕卸載。\n' >&2
+        return 1
+    fi
+    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
+        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
+        return 1
+    fi
+
+    printf '%s\n' \
+        '卸載方式：' \
+        '1. 保留設定、機密與備份' \
+        '2. 完整清除全部專案資料' \
+        '0. 取消'
+    choice=''
+    IFS= read -r choice || true
+    case "$choice" in
+        0 | '')
+            printf '已取消多 IPv6 出站卸載。\n'
+            return 0
+            ;;
+        1 | 2)
+            ;;
+        *)
+            printf '錯誤：無效的卸載方式。\n' >&2
+            return 1
+            ;;
+    esac
+
+    printf '確認卸載多 IPv6 出站？[y/N] '
+    confirmation=''
+    IFS= read -r confirmation || true
+    if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
+        printf '已取消多 IPv6 出站卸載。\n'
+        return 0
+    fi
+
+    if [[ "$init_system" == "systemd" ]]; then
+        unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
+        if ! systemctl disable --now s12ryt-ipv6.service; then
+            printf '錯誤：無法停用 systemd 服務，未移除專案資料。\n' >&2
+            return 1
+        fi
+        rm -f -- "$unit_path"
+        if ! systemctl daemon-reload; then
+            printf '錯誤：systemd daemon-reload 失敗。\n' >&2
+            return 1
+        fi
+    else
+        service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
+        logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
+        rc-service s12ryt-ipv6 stop >/dev/null 2>&1 || true
+        if ! rc-update del s12ryt-ipv6 default; then
+            printf '錯誤：無法反註冊 OpenRC 服務，未移除專案資料。\n' >&2
+            return 1
+        fi
+        rm -f -- "$service_path" "$logrotate_path"
+    fi
+
+    if [[ "$choice" == "1" ]]; then
+        rm -rf -- "${project_root}/bin"
+        printf '多 IPv6 出站已卸載；設定、機密與備份已保留。\n'
+    else
+        rm -rf -- "$project_root"
+        printf '多 IPv6 出站及全部專案資料已完整移除。\n'
+    fi
+}
+
+uninstall_ipv6_project_release() {
+    local init_system
+
+    check_ipv6_project_preflight || return 1
+    init_system="$(detect_ipv6_project_init)"
+    uninstall_ipv6_project_state "$init_system"
+}
+
 main() {
     case "${1:-}" in
         preflight | '')
@@ -662,8 +743,15 @@ main() {
             fi
             configure_ipv6_project_state
             ;;
+        uninstall)
+            if (($# != 1)); then
+                printf '用法：%s uninstall\n' "${0##*/}" >&2
+                return 1
+            fi
+            uninstall_ipv6_project_release
+            ;;
         *)
-            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|update|configure]\n' "${0##*/}" >&2
+            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|update|configure|uninstall]\n' "${0##*/}" >&2
             return 1
             ;;
     esac
