@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +25,11 @@ const SessionCookieName = "s12ryt_panel_session"
 
 const maxConfigBodySize = 1 << 20
 
+const maxRemoteRequestBodySize = 6*(1<<20) + 4096
+
 const credentialElevationLifetime = 5 * time.Minute
+
+var remoteTagPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type ConfigStore interface {
 	Save(domain.Config) error
@@ -38,31 +43,41 @@ type NodeManager interface {
 	Delete(string) error
 }
 
+type RemoteManager interface {
+	RemoteOutbounds() []nodes.RemoteOutboundSummary
+	ImportRemoteOutbounds(nodes.ImportRemoteInput) ([]nodes.RemoteOutboundSummary, error)
+	UpdateRemoteOutbound(string, bool) (nodes.RemoteOutboundSummary, error)
+	DeleteRemoteOutbound(string) error
+	SetIPv4Fallback([]string) error
+}
+
 type Options struct {
-	BasePath     string
-	PasswordHash string
-	Hasher       *auth.PasswordHasher
-	Sessions     *auth.SessionManager
-	Limiter      *auth.LoginLimiter
-	Config       domain.Config
-	Store        ConfigStore
-	NodeManager  NodeManager
-	Clock        func() time.Time
+	BasePath      string
+	PasswordHash  string
+	Hasher        *auth.PasswordHasher
+	Sessions      *auth.SessionManager
+	Limiter       *auth.LoginLimiter
+	Config        domain.Config
+	Store         ConfigStore
+	NodeManager   NodeManager
+	RemoteManager RemoteManager
+	Clock         func() time.Time
 }
 
 type Server struct {
-	basePath     string
-	passwordHash string
-	hasher       *auth.PasswordHasher
-	sessions     *auth.SessionManager
-	limiter      *auth.LoginLimiter
-	mutex        sync.RWMutex
-	config       domain.Config
-	store        ConfigStore
-	nodeManager  NodeManager
-	clock        func() time.Time
-	elevationMu  sync.Mutex
-	elevations   map[string]time.Time
+	basePath      string
+	passwordHash  string
+	hasher        *auth.PasswordHasher
+	sessions      *auth.SessionManager
+	limiter       *auth.LoginLimiter
+	mutex         sync.RWMutex
+	config        domain.Config
+	store         ConfigStore
+	nodeManager   NodeManager
+	remoteManager RemoteManager
+	clock         func() time.Time
+	elevationMu   sync.Mutex
+	elevations    map[string]time.Time
 }
 
 func NewServer(options Options) *Server {
@@ -75,16 +90,17 @@ func NewServer(options Options) *Server {
 		clock = time.Now
 	}
 	return &Server{
-		basePath:     strings.TrimRight(options.BasePath, "/"),
-		passwordHash: options.PasswordHash,
-		hasher:       options.Hasher,
-		sessions:     options.Sessions,
-		limiter:      options.Limiter,
-		config:       config,
-		store:        options.Store,
-		nodeManager:  options.NodeManager,
-		clock:        clock,
-		elevations:   make(map[string]time.Time),
+		basePath:      strings.TrimRight(options.BasePath, "/"),
+		passwordHash:  options.PasswordHash,
+		hasher:        options.Hasher,
+		sessions:      options.Sessions,
+		limiter:       options.Limiter,
+		config:        config,
+		store:         options.Store,
+		nodeManager:   options.NodeManager,
+		remoteManager: options.RemoteManager,
+		clock:         clock,
+		elevations:    make(map[string]time.Time),
 	}
 }
 
@@ -113,6 +129,14 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 		server.listNodes(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/nodes":
 		server.createNode(response, request)
+	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/api/remotes":
+		server.listRemoteOutbounds(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/remotes":
+		server.importRemoteOutbounds(response, request)
+	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/remotes/"):
+		server.handleNamedRemoteOutbound(response, request)
+	case request.Method == http.MethodPut && request.URL.Path == server.basePath+"/api/ipv4-fallback":
+		server.setIPv4Fallback(response, request)
 	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/nodes/"):
 		server.handleNamedNode(response, request)
 	default:
@@ -579,6 +603,165 @@ func (server *Server) authorizeNodeMutation(response http.ResponseWriter, reques
 		return false
 	}
 	return true
+}
+
+type remoteOutboundSummary struct {
+	Tag                  string `json:"tag"`
+	Type                 string `json:"type"`
+	Server               string `json:"server"`
+	Port                 int    `json:"port"`
+	Enabled              bool   `json:"enabled"`
+	IPv4FallbackPosition int    `json:"ipv4_fallback_position"`
+}
+
+type importRemoteRequest struct {
+	Payload        string `json:"payload"`
+	AllowIPv4Proxy bool   `json:"allow_ipv4_proxy"`
+	Enabled        bool   `json:"enabled"`
+}
+
+type updateRemoteRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type ipv4FallbackRequest struct {
+	Tags []string `json:"tags"`
+}
+
+func (server *Server) listRemoteOutbounds(response http.ResponseWriter, request *http.Request) {
+	if _, valid := server.requestSession(request); !valid {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	if server.remoteManager == nil {
+		http.Error(response, "遠端出口管理服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(response, http.StatusOK, summarizeRemoteOutboundList(server.remoteManager.RemoteOutbounds()))
+}
+
+func (server *Server) importRemoteOutbounds(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeRemoteMutation(response, request) {
+		return
+	}
+	var input importRemoteRequest
+	if !decodeRemoteJSON(response, request, &input) {
+		return
+	}
+	created, err := server.remoteManager.ImportRemoteOutbounds(nodes.ImportRemoteInput{
+		Payload:        []byte(input.Payload),
+		AllowIPv4Proxy: input.AllowIPv4Proxy,
+		Enabled:        input.Enabled,
+	})
+	if err != nil {
+		http.Error(response, "無法匯入遠端出口。", http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(response, http.StatusCreated, summarizeRemoteOutboundList(created))
+}
+
+func (server *Server) handleNamedRemoteOutbound(response http.ResponseWriter, request *http.Request) {
+	tag := strings.TrimPrefix(request.URL.Path, server.basePath+"/api/remotes/")
+	if !remoteTagPattern.MatchString(tag) {
+		http.Error(response, "遠端出口標籤無效。", http.StatusBadRequest)
+		return
+	}
+	switch request.Method {
+	case http.MethodPatch:
+		server.updateRemoteOutbound(response, request, tag)
+	case http.MethodDelete:
+		server.deleteRemoteOutbound(response, request, tag)
+	default:
+		response.Header().Set("Allow", "PATCH, DELETE")
+		http.Error(response, "不支援的遠端出口操作。", http.StatusMethodNotAllowed)
+	}
+}
+
+func (server *Server) updateRemoteOutbound(response http.ResponseWriter, request *http.Request, tag string) {
+	if !server.authorizeRemoteMutation(response, request) {
+		return
+	}
+	var input updateRemoteRequest
+	if !decodeRemoteJSON(response, request, &input) {
+		return
+	}
+	updated, err := server.remoteManager.UpdateRemoteOutbound(tag, input.Enabled)
+	if err != nil {
+		http.Error(response, "無法更新遠端出口。", http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(response, http.StatusOK, summarizeRemoteOutbound(updated))
+}
+
+func (server *Server) deleteRemoteOutbound(response http.ResponseWriter, request *http.Request, tag string) {
+	if !server.authorizeRemoteMutation(response, request) {
+		return
+	}
+	if err := server.remoteManager.DeleteRemoteOutbound(tag); err != nil {
+		http.Error(response, "無法刪除遠端出口。", http.StatusUnprocessableEntity)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (server *Server) setIPv4Fallback(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeRemoteMutation(response, request) {
+		return
+	}
+	var input ipv4FallbackRequest
+	if !decodeRemoteJSON(response, request, &input) {
+		return
+	}
+	if err := server.remoteManager.SetIPv4Fallback(input.Tags); err != nil {
+		http.Error(response, "無法更新 IPv4 備援順序。", http.StatusUnprocessableEntity)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (server *Server) authorizeRemoteMutation(response http.ResponseWriter, request *http.Request) bool {
+	if !server.authorizeStateChange(response, request) {
+		return false
+	}
+	if request.Header.Get("X-S12ryt-Confirm") != "apply" {
+		http.Error(response, "遠端出口變更需要明確確認。", http.StatusConflict)
+		return false
+	}
+	if server.remoteManager == nil {
+		http.Error(response, "遠端出口管理服務不可用。", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func decodeRemoteJSON(response http.ResponseWriter, request *http.Request, target any) bool {
+	request.Body = http.MaxBytesReader(response, request.Body, maxRemoteRequestBodySize)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		http.Error(response, "遠端出口 JSON 無效。", http.StatusBadRequest)
+		return false
+	}
+	if err := ensureJSONEnd(decoder); err != nil {
+		http.Error(response, "遠端出口 JSON 只能包含一個物件。", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func summarizeRemoteOutbound(summary nodes.RemoteOutboundSummary) remoteOutboundSummary {
+	return remoteOutboundSummary{
+		Tag: summary.Tag, Type: summary.Type, Server: summary.Server, Port: summary.Port,
+		Enabled: summary.Enabled, IPv4FallbackPosition: summary.IPv4FallbackPosition,
+	}
+}
+
+func summarizeRemoteOutboundList(summaries []nodes.RemoteOutboundSummary) []remoteOutboundSummary {
+	result := make([]remoteOutboundSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		result = append(result, summarizeRemoteOutbound(summary))
+	}
+	return result
 }
 
 func decodeStrictJSON(response http.ResponseWriter, request *http.Request, target any) bool {
