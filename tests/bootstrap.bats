@@ -90,7 +90,8 @@ run_process_bootstrap() {
         bootstrap_output="$output"
         [[ "$bootstrap_output" == *"$expected"* ]]
         [[ "$bootstrap_output" == *"警告：僅臨時執行；s 可能不存在或仍是舊版"* ]]
-        [[ "$bootstrap_output" == *"暫無項目"* ]]
+        [[ "$bootstrap_output" == *"s12ryt 項目列表"* ]]
+        [[ "$bootstrap_output" == *"1. s12ryt-多ipv6出站"* ]]
         [ "$(cat "$stable_path")" = "stable-sentinel" ]
         [ "$(cat "$launcher_path")" = "launcher-sentinel" ]
         [ -z "$(find "$(dirname "$stable_path")" -maxdepth 1 -name '.s12ryt-bootstrap.*' -print -quit)" ]
