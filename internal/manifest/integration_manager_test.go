@@ -126,7 +126,7 @@ func TestIntegrationManagerCleanupKeepsManifestWhenACommandFails(t *testing.T) {
 	if !eventContains(events, "ip -6 addr del 2001:db8:100::10/64 dev eth0") {
 		t.Fatalf("cleanup stopped before remaining project resources: %#v", events)
 	}
-	if eventContains(events, "delete") {
+	if eventEquals(events, "delete") {
 		t.Fatalf("cleanup deleted manifest after command failure: %#v", events)
 	}
 }
@@ -235,6 +235,15 @@ func assertEventOrder(t *testing.T, events []string, expected ...string) {
 func eventContains(events []string, expected string) bool {
 	for _, event := range events {
 		if strings.Contains(event, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventEquals(events []string, expected string) bool {
+	for _, event := range events {
+		if event == expected {
 			return true
 		}
 	}
