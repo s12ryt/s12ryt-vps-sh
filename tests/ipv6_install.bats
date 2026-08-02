@@ -136,6 +136,37 @@ EOF
     chmod 0755 "${MOCK_BIN}/curl"
 }
 
+create_configurable_ipv6_panel() {
+    mkdir -p "${S12RYT_PROJECT_ROOT}/bin" "${S12RYT_PROJECT_ROOT}/secrets"
+    cat > "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" <<'EOF'
+#!/bin/bash
+set -eu
+printf 'panel %s\n' "$*" >> "$MOCK_LOG"
+case "${1:-}" in
+    status)
+        printf '管理埠：34456\n'
+        ;;
+    reset-password)
+        if [[ "${2:-}" == "--generate" ]]; then
+            password='GeneratedResetPassword123'
+        else
+            password=''
+            IFS= read -r password
+        fi
+        printf '%s\n' "$password" > "${S12RYT_PROJECT_ROOT}/secrets/management.password"
+        printf 'replacement-hash\n' > "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
+        chmod 0600 "${S12RYT_PROJECT_ROOT}/secrets/management.password" \
+            "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
+        printf '管理密碼已重設：%s\n' "$password"
+        ;;
+    health-url)
+        printf 'http://127.0.0.1:34456/abcdefghijkl/healthz\n'
+        ;;
+esac
+EOF
+    chmod 0755 "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
+}
+
 @test "IPv6 專案只接受 Linux root systemd 或 OpenRC 與支援架構" {
     local row kernel uid init arch expected
     local -a cases=(
@@ -311,7 +342,8 @@ EOF
         S12RYT_INIT_SYSTEM=systemd \
         S12RYT_MACHINE_ARCH=x86_64 \
         S12RYT_IPV6_SOURCE_ONLY=0 \
-        /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
+        /bin/bash -c 'printf "1\n0\n" | /bin/bash "$1" configure' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
 
     [ "$status" -eq 0 ]
     grep -Fxq 'panel status' "$MOCK_LOG"
@@ -329,6 +361,60 @@ EOF
 
     [ "$status" -ne 0 ]
     [[ "$output" == *"IPv6 管理面板尚未安裝"* ]]
+}
+
+@test "configure 選單以 stdin 重設密碼並重啟健康服務" {
+    create_command_mock systemctl
+    create_ipv6_health_curl_mock
+    create_configurable_ipv6_panel
+    local custom_password='CustomManagementPassword456'
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=systemd \
+        S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
+        /bin/bash -c 'printf "1\n2\ny\n3\n%s\n%s\n0\n" "$2" "$2" | /bin/bash "$1" configure' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$custom_password"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"多 IPv6 出站設定"* ]]
+    grep -Fxq 'panel status' "$MOCK_LOG"
+    grep -Fxq 'panel reset-password --generate' "$MOCK_LOG"
+    grep -Fxq 'panel reset-password' "$MOCK_LOG"
+    ! grep -Fq "panel reset-password ${custom_password}" "$MOCK_LOG"
+    [ "$(grep -Fxc 'systemctl restart s12ryt-ipv6.service' "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -Fxc 'panel health-url' "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -Fc 'curl -fsS --connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 http://127.0.0.1:34456/abcdefghijkl/healthz' "$MOCK_LOG")" -eq 2 ]
+    [ "$(cat "${S12RYT_PROJECT_ROOT}/secrets/management.password")" = "$custom_password" ]
+}
+
+@test "configure 自訂密碼不一致時不修改憑證或重啟服務" {
+    create_command_mock systemctl
+    create_configurable_ipv6_panel
+    printf 'original-password\n' > "${S12RYT_PROJECT_ROOT}/secrets/management.password"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=systemd \
+        S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
+        /bin/bash -c 'printf "3\nCustomManagementPassword456\nDifferentManagementPass789\n0\n" | /bin/bash "$1" configure' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"兩次輸入的管理密碼不一致"* ]]
+    [ "$(cat "${S12RYT_PROJECT_ROOT}/secrets/management.password")" = 'original-password' ]
+    ! grep -Fq 'panel reset-password' "$MOCK_LOG"
+    ! grep -Fq 'systemctl restart' "$MOCK_LOG"
 }
 
 @test "下載後尚未帶執行權限的面板資產仍可安全部署" {
