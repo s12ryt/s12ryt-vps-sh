@@ -1,0 +1,112 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const panelPath = '/abcdefghijkl';
+
+async function login(page: Page): Promise<void> {
+  await page.goto(panelPath);
+  await page.getByLabel('管理密碼').fill('panel-password');
+  await page.getByRole('button', { name: '登入' }).click();
+  await expect(page.getByRole('heading', { name: 's12ryt 多 IPv6 出站' })).toBeVisible();
+}
+
+test('登入錯誤與成功路徑都可觀察', async ({ page }) => {
+  await page.goto(panelPath);
+  await expect(page.getByRole('heading', { name: '登入 IPv6 管理面板' })).toBeVisible();
+  await page.getByLabel('管理密碼').fill('wrong-password');
+  await page.getByRole('button', { name: '登入' }).click();
+  await expect(page.locator('body')).toContainText('密碼錯誤');
+
+  await login(page);
+  await expect(page).toHaveURL(new RegExp(`${panelPath}$`));
+});
+
+test('導覽順序與 static backdrop 契約成立', async ({ page }) => {
+  await login(page);
+  await expect(page.locator('nav button')).toHaveText(['出口模式', '拓撲', '協議']);
+
+  await page.getByRole('button', { name: '出口模式' }).click();
+  const modal = page.locator('[data-modal="routing"]');
+  await expect(modal).toBeVisible();
+  await modal.click({ position: { x: 5, y: 5 } });
+  await expect(modal).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+});
+
+test('缺少 CSRF 的狀態變更會被拒絕', async ({ page }) => {
+  await login(page);
+  const status = await page.evaluate(async () => {
+    const shell = document.querySelector<HTMLElement>('.shell');
+    const response = await fetch(shell?.dataset.validateEndpoint ?? '', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    return response.status;
+  });
+  expect(status).toBe(403);
+});
+
+test('分享需重新驗證且關閉時清除秘密', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:18080',
+  });
+  await login(page);
+  await page.getByRole('button', { name: '驗證並查看分享' }).click();
+  const modal = page.locator('[data-modal="share-reveal"]');
+  await modal.getByLabel('管理密碼').fill('panel-password');
+  await modal.getByRole('button', { name: '驗證並揭露' }).click();
+
+  const uri = modal.locator('[data-share-uri]');
+  await expect(uri).toContainText('vless://');
+  await expect(modal.locator('[data-share-expiry]')).toContainText('300 秒');
+  const image = modal.locator('img[data-share-qr]');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+
+  await uri.locator('..').getByRole('button', { name: '複製' }).click();
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toContain('vless://');
+
+  await modal.getByRole('button', { name: '取消' }).click();
+  await expect(modal).toBeHidden();
+  await expect(page.locator('[data-share-uri]')).toHaveCount(0);
+  await expect(page.locator('img[data-share-qr]')).toHaveCount(0);
+});
+
+test('版面無水平溢出或主要導覽重疊且不載入外部資產', async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.hostname !== '127.0.0.1') {
+      externalRequests.push(request.url());
+    }
+  });
+  await login(page);
+  await page.waitForLoadState('networkidle');
+
+  const layout = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll<HTMLElement>('nav button')];
+    const boxes = buttons.map((button) => button.getBoundingClientRect());
+    let overlap = false;
+    for (let left = 0; left < boxes.length; left += 1) {
+      for (let right = left + 1; right < boxes.length; right += 1) {
+        const a = boxes[left];
+        const b = boxes[right];
+        if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) {
+          overlap = true;
+        }
+      }
+    }
+    const overflowingButtons = [...document.querySelectorAll<HTMLElement>('button')]
+      .filter((button) => button.offsetParent !== null && button.scrollWidth > button.clientWidth + 1)
+      .map((button) => button.textContent?.trim() ?? '');
+    return {
+      horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+      overlap,
+      overflowingButtons,
+    };
+  });
+  expect(layout).toEqual({ horizontalOverflow: false, overlap: false, overflowingButtons: [] });
+  expect(externalRequests).toEqual([]);
+});
