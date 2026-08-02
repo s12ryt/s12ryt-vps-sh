@@ -142,3 +142,7 @@
 - v1.1.1 版本與文件契約 Actions `30766661023` 中，Go、18 項 Playwright、Release assets、60 秒資源及 10 發行版容器均維持通過；96 項 Bats 只有主版本、自我更新與 IPv6 v1.1.1 資產 URL 共五項按預期失敗，形成有效 RED。
 - 將主腳本與 IPv6 helper 升至 `1.1.1`，同步 package metadata，README 新增深色 NOC、五工作區 hash、操作狀態、欄位錯誤、危險操作及鍵盤/modal 焦點說明。發行候選 Actions `30766839172` 完整通過 Go format/test/vet、Bash syntax/ShellCheck、96 Bats、README/LICENSE、Playwright desktop/mobile 18 項、amd64/arm64 Release 資產、真實 64 IPv6 + 28 nodes 穩定 60 秒資源門檻及 10 個 x86_64 發行版容器。
 - 完成 v1.1.1 發行前品質審查，未發現未處理的重大或高風險問題。剩餘邊界仍為未在真實外部 VPS 驗證、arm64 僅完成交叉編譯，以及使用者已接受的公開 HTTP 攔截風險；README 保留明確警告。
+- 發行紀錄候選提交 `01d53b56e8eb55f117e98cc2c41a8415c1c99027` 的 GitHub Actions run `30767013669` 再次完整通過 Go format/test/vet、Bash 語法、ShellCheck、96 項 Bats、README/LICENSE、Playwright 桌面/手機 18 項、amd64/arm64 Release 資產、真實 64 IPv6 + 28 nodes 穩定 60 秒資源門檻，以及 10 個 x86_64 發行版容器驗收。
+- 從候選 run 的 `ipv6-release-assets` 下載 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64` 與 `SHA256SUMS`，以 Windows `Get-FileHash` 核對成功：amd64 為 `25a6e4521ec0f8c03d9d04fc64706c8457427ea4b1e7db6b56396e1010223da2`，arm64 為 `c2fca864767000d9540fdfe2520d2b6eed74b2bc8d533c6a2dcbc02ccd889ffd`。
+- 建立正式 `v1.1.1` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.1.1），保留既有 Releases；tag 精確指向上述全綠提交，latest Release API 回傳 `v1.1.1`，且不是 draft 或 prerelease。三個資產均為 uploaded，Release API digest 與本機 SHA-256／`SHA256SUMS` 一致。
+- 驗證 tag 內 `s12ryt.sh` 版本為 `1.1.1`、`install-ipv6.sh` 的 `IPV6_PROJECT_VERSION` 為 `1.1.1`、`install-proot.sh` 可讀；README 含 v1.1.1、深色 NOC、五工作區 hash、操作狀態、欄位錯誤與鍵盤/modal 焦點契約。
