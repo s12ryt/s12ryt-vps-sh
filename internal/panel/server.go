@@ -93,6 +93,8 @@ func (server *Server) Handler() http.Handler {
 func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Request) {
 	setSecurityHeaders(response)
 	switch {
+	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/healthz":
+		server.showHealth(response)
 	case request.Method == http.MethodGet && request.URL.Path == server.basePath:
 		server.showPanel(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/login":
@@ -114,6 +116,12 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 	default:
 		http.NotFound(response, request)
 	}
+}
+
+func (server *Server) showHealth(response http.ResponseWriter) {
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(response, "{\"status\":\"ok\"}\n")
 }
 
 func setSecurityHeaders(response http.ResponseWriter) {
