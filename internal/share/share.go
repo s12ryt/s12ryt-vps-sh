@@ -21,6 +21,11 @@ type Input struct {
 	LocalNodes    []LocalNode
 	RemoteSecrets []string
 	RoutingMode   domain.RoutingMode
+	QRRenderer    QRRenderer
+}
+
+type QRRenderer interface {
+	RenderPNG(payload string) ([]byte, error)
 }
 
 type LocalNode struct {
@@ -53,6 +58,7 @@ type Artifact struct {
 	NodeID              string
 	URI                 string
 	QRPayload           string
+	QRPNG               []byte
 	ClientJSON          []byte
 	FullClientJSON      []byte
 	FullClientBase64    string
@@ -86,6 +92,13 @@ func GenerateBundle(input Input) (Bundle, error) {
 			return Bundle{}, fmt.Errorf("node %q client JSON: %w", node.ID, err)
 		}
 		artifact := Artifact{NodeID: node.ID, URI: uri, QRPayload: uri, ClientJSON: clientJSON}
+		if input.QRRenderer != nil {
+			qrPNG, renderErr := input.QRRenderer.RenderPNG(uri)
+			if renderErr != nil {
+				return Bundle{}, fmt.Errorf("node %q QR PNG: %w", node.ID, renderErr)
+			}
+			artifact.QRPNG = append([]byte(nil), qrPNG...)
+		}
 		if input.RoutingMode == domain.RoutingModeClientIPv4 {
 			fullClientJSON, fullErr := clientSplitConfig(node)
 			if fullErr != nil {
