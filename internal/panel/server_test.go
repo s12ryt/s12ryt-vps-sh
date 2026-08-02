@@ -287,13 +287,32 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 		`data-credential-value hidden`,
 		`data-credential-expiry`,
 		`expires_in_seconds`,
+		`data-remotes-endpoint="/abcdefghijkl/api/remotes"`,
+		`data-ipv4-fallback-endpoint="/abcdefghijkl/api/ipv4-fallback"`,
+		`data-remote-workspace`,
+		`data-remote-table`,
+		`data-remote-import`,
+		`data-remote-form`,
+		`name="remote_payload"`,
+		`name="allow_ipv4_proxy"`,
+		`name="remote_enabled"`,
+		`data-remote-toggle`,
+		`data-remote-delete`,
+		`data-fallback-form`,
+		`name="ipv4_fallback_tags"`,
+		`allow_ipv4_proxy:`,
+		`X-CSRF-Token`,
+		`X-S12ryt-Confirm`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("dashboard missing configuration marker %q", expected)
 		}
 	}
-	if strings.Count(body, `data-modal-backdrop="static"`) != 5 {
-		t.Fatalf("static modal count = %d, want 5", strings.Count(body, `data-modal-backdrop="static"`))
+	if strings.Count(body, `data-modal-backdrop="static"`) != 6 {
+		t.Fatalf("static modal count = %d, want 6", strings.Count(body, `data-modal-backdrop="static"`))
+	}
+	if strings.Contains(body, "innerHTML") {
+		t.Fatal("dashboard remote UI must not render API data through innerHTML")
 	}
 }
 
