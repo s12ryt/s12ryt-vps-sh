@@ -60,35 +60,41 @@ type NetworkManager interface {
 	Apply(context.Context, networksetup.Request) (manifest.Manifest, error)
 }
 
+type ACMEChallengeChecker interface {
+	Available(context.Context) (bool, error)
+}
+
 type Options struct {
-	BasePath       string
-	PasswordHash   string
-	Hasher         *auth.PasswordHasher
-	Sessions       *auth.SessionManager
-	Limiter        *auth.LoginLimiter
-	Config         domain.Config
-	Store          ConfigStore
-	NodeManager    NodeManager
-	RemoteManager  RemoteManager
-	NetworkManager NetworkManager
-	Clock          func() time.Time
+	BasePath             string
+	PasswordHash         string
+	Hasher               *auth.PasswordHasher
+	Sessions             *auth.SessionManager
+	Limiter              *auth.LoginLimiter
+	Config               domain.Config
+	Store                ConfigStore
+	NodeManager          NodeManager
+	RemoteManager        RemoteManager
+	NetworkManager       NetworkManager
+	ACMEChallengeChecker ACMEChallengeChecker
+	Clock                func() time.Time
 }
 
 type Server struct {
-	basePath       string
-	passwordHash   string
-	hasher         *auth.PasswordHasher
-	sessions       *auth.SessionManager
-	limiter        *auth.LoginLimiter
-	mutex          sync.RWMutex
-	config         domain.Config
-	store          ConfigStore
-	nodeManager    NodeManager
-	remoteManager  RemoteManager
-	networkManager NetworkManager
-	clock          func() time.Time
-	elevationMu    sync.Mutex
-	elevations     map[string]time.Time
+	basePath             string
+	passwordHash         string
+	hasher               *auth.PasswordHasher
+	sessions             *auth.SessionManager
+	limiter              *auth.LoginLimiter
+	mutex                sync.RWMutex
+	config               domain.Config
+	store                ConfigStore
+	nodeManager          NodeManager
+	remoteManager        RemoteManager
+	networkManager       NetworkManager
+	acmeChallengeChecker ACMEChallengeChecker
+	clock                func() time.Time
+	elevationMu          sync.Mutex
+	elevations           map[string]time.Time
 }
 
 func NewServer(options Options) *Server {
@@ -101,18 +107,19 @@ func NewServer(options Options) *Server {
 		clock = time.Now
 	}
 	return &Server{
-		basePath:       strings.TrimRight(options.BasePath, "/"),
-		passwordHash:   options.PasswordHash,
-		hasher:         options.Hasher,
-		sessions:       options.Sessions,
-		limiter:        options.Limiter,
-		config:         config,
-		store:          options.Store,
-		nodeManager:    options.NodeManager,
-		remoteManager:  options.RemoteManager,
-		networkManager: options.NetworkManager,
-		clock:          clock,
-		elevations:     make(map[string]time.Time),
+		basePath:             strings.TrimRight(options.BasePath, "/"),
+		passwordHash:         options.PasswordHash,
+		hasher:               options.Hasher,
+		sessions:             options.Sessions,
+		limiter:              options.Limiter,
+		config:               config,
+		store:                options.Store,
+		nodeManager:          options.NodeManager,
+		remoteManager:        options.RemoteManager,
+		networkManager:       options.NetworkManager,
+		acmeChallengeChecker: options.ACMEChallengeChecker,
+		clock:                clock,
+		elevations:           make(map[string]time.Time),
 	}
 }
 
@@ -495,6 +502,9 @@ func (server *Server) createNode(response http.ResponseWriter, request *http.Req
 		http.Error(response, "節點部署設定不可省略。", http.StatusBadRequest)
 		return
 	}
+	if input.Deployment.TLS.ACME != nil && !server.checkACMEChallengeAvailability(response, request) {
+		return
+	}
 	node, err := server.nodeManager.Create(nodes.CreateInput{
 		ID: input.ID, Protocol: input.Protocol, Port: input.Port, Enabled: input.Enabled,
 		Deployment: runtimeconfig.PersistedNodeDeployment{
@@ -510,6 +520,23 @@ func (server *Server) createNode(response http.ResponseWriter, request *http.Req
 	}
 	server.replaceCurrentConfig(server.nodeManager.Snapshot())
 	writeJSON(response, http.StatusCreated, summarizeNode(node))
+}
+
+func (server *Server) checkACMEChallengeAvailability(response http.ResponseWriter, request *http.Request) bool {
+	if server.acmeChallengeChecker == nil {
+		http.Error(response, "ACME HTTP-01 前置檢查服務不可用。", http.StatusServiceUnavailable)
+		return false
+	}
+	available, err := server.acmeChallengeChecker.Available(request.Context())
+	if err != nil {
+		http.Error(response, "無法檢查 ACME HTTP-01 的 TCP/80。", http.StatusUnprocessableEntity)
+		return false
+	}
+	if !available {
+		http.Error(response, "TCP/80 已被占用，無法使用 ACME HTTP-01。", http.StatusConflict)
+		return false
+	}
+	return true
 }
 
 func (server *Server) handleNamedNode(response http.ResponseWriter, request *http.Request) {
