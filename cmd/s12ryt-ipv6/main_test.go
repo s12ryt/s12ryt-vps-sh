@@ -21,6 +21,7 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/endpoint"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
@@ -615,6 +616,99 @@ func TestRunRestoreSystemCommandPreservesRestoreError(t *testing.T) {
 	}
 }
 
+func TestRunSetEndpointCommandPreservesProtectedFirewallScope(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	config := domain.DefaultConfig()
+	config.Panel.AllowedCIDRs = []string{"198.51.100.0/24", "2001:db8::/32"}
+	if err := store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")).Save(config); err != nil {
+		t.Fatalf("Save(config) error = %v", err)
+	}
+	contextKey := struct{}{}
+	ctx := context.WithValue(context.Background(), contextKey, "endpoint")
+	updater := &stubEndpointUpdater{}
+	var output bytes.Buffer
+
+	err := runCommand([]string{"set-endpoint", "35555", "/newpanel1234", "2001:db8:100::20", "systemd"}, commandOptions{
+		ProjectRoot:     projectRoot,
+		Context:         ctx,
+		Output:          &output,
+		EndpointUpdater: updater,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(set-endpoint) error = %v", err)
+	}
+	want := domain.PanelConfig{
+		Port:         35555,
+		Path:         "/newpanel1234",
+		ListenIPv6:   "2001:db8:100::20",
+		AllowedCIDRs: []string{"198.51.100.0/24", "2001:db8::/32"},
+	}
+	if updater.calls != 1 || !reflect.DeepEqual(updater.panel, want) || updater.contextValue != "endpoint" {
+		t.Fatalf("endpoint update = calls %d, panel %#v, context %q; want %#v", updater.calls, updater.panel, updater.contextValue, want)
+	}
+	if output.String() != "管理面板端點已更新。\n" {
+		t.Fatalf("set-endpoint output = %q", output.String())
+	}
+}
+
+func TestRunSetEndpointCommandAcceptsWildcardIPv6AndRejectsUnsafeInputs(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	if err := store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")).Save(domain.DefaultConfig()); err != nil {
+		t.Fatalf("Save(config) error = %v", err)
+	}
+	updater := &stubEndpointUpdater{}
+	if err := runCommand([]string{"set-endpoint", "34456", "/configureme1", "-", "openrc"}, commandOptions{
+		ProjectRoot:     projectRoot,
+		Output:          &bytes.Buffer{},
+		EndpointUpdater: updater,
+	}); err != nil {
+		t.Fatalf("runCommand(set-endpoint wildcard) error = %v", err)
+	}
+	if updater.calls != 1 || updater.panel.ListenIPv6 != "" {
+		t.Fatalf("wildcard endpoint update = calls %d, panel %#v", updater.calls, updater.panel)
+	}
+
+	tests := map[string][]string{
+		"arguments":   {"set-endpoint", "34456"},
+		"port":        {"set-endpoint", "0", "/configureme1", "-", "systemd"},
+		"path":        {"set-endpoint", "34456", "unsafe/path", "-", "systemd"},
+		"listener":    {"set-endpoint", "34456", "/configureme1", "198.51.100.2", "systemd"},
+		"init system": {"set-endpoint", "34456", "/configureme1", "-", "unknown"},
+	}
+	for name, arguments := range tests {
+			t.Run(name, func(t *testing.T) {
+			before := updater.calls
+			if err := runCommand(arguments, commandOptions{
+				ProjectRoot:     projectRoot,
+				Output:          &bytes.Buffer{},
+				EndpointUpdater: updater,
+			}); err == nil {
+				t.Fatal("runCommand(set-endpoint) accepted unsafe input")
+			}
+			if updater.calls != before {
+				t.Fatalf("updater calls = %d after rejected input, want %d", updater.calls, before)
+			}
+		})
+	}
+}
+
+func TestRunSetEndpointCommandPreservesTransactionError(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	if err := store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")).Save(domain.DefaultConfig()); err != nil {
+		t.Fatalf("Save(config) error = %v", err)
+	}
+	sentinel := errors.New("endpoint transaction failed")
+	updater := &stubEndpointUpdater{err: sentinel}
+	err := runCommand([]string{"set-endpoint", "35555", "/newpanel1234", "-", "systemd"}, commandOptions{
+		ProjectRoot:     projectRoot,
+		Output:          &bytes.Buffer{},
+		EndpointUpdater: updater,
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("runCommand(set-endpoint) error = %v, want sentinel", err)
+	}
+}
+
 func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o644)
 	_, err := loadApplication(runtimeOptions{
@@ -1111,6 +1205,22 @@ type stubIntegrationRestorer struct {
 	contextValue string
 	err          error
 }
+
+type stubEndpointUpdater struct {
+	calls        int
+	panel        domain.PanelConfig
+	contextValue string
+	err          error
+}
+
+func (updater *stubEndpointUpdater) Apply(ctx context.Context, panel domain.PanelConfig) error {
+	updater.calls++
+	updater.panel = panel
+	updater.contextValue, _ = ctx.Value(struct{}{}).(string)
+	return updater.err
+}
+
+var _ endpoint.Repository = (*store.ConfigStore)(nil)
 
 func (restorer *stubIntegrationRestorer) Restore(ctx context.Context) error {
 	restorer.calls++
