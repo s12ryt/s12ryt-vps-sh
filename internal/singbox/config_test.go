@@ -67,10 +67,10 @@ func TestGenerateServerConfigSupportsAllRequiredInboundProtocols(t *testing.T) {
 func TestGenerateServerConfigCreatesDualListenersWithSharedPortAndCredential(t *testing.T) {
 	input := ServerInput{
 		Nodes: []InboundNode{{
-			ID:        "dual-node",
-			Protocol:  domain.ProtocolVLESS,
-			Port:      24444,
-			Listeners: []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::10")},
+			ID:         "dual-node",
+			Protocol:   domain.ProtocolVLESS,
+			Port:       24444,
+			Listeners:  []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::10")},
 			Credential: Credential{UUID: "550e8400-e29b-41d4-a716-446655440000"},
 		}},
 	}
@@ -117,10 +117,10 @@ func TestGenerateServerConfigBindsDirectOutboundsToExactIPv6Addresses(t *testing
 
 func TestGenerateServerConfigRejectsUnsafeNodeInputs(t *testing.T) {
 	base := InboundNode{
-		ID:        "node-1",
-		Protocol:  domain.ProtocolVLESS,
-		Port:      22000,
-		Listeners: []netip.Addr{netip.MustParseAddr("2001:db8::10")},
+		ID:         "node-1",
+		Protocol:   domain.ProtocolVLESS,
+		Port:       22000,
+		Listeners:  []netip.Addr{netip.MustParseAddr("2001:db8::10")},
 		Credential: Credential{UUID: "550e8400-e29b-41d4-a716-446655440000"},
 	}
 	tests := []struct {
