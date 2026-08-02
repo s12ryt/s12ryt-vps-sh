@@ -30,8 +30,8 @@ type SelfSignedOptions struct {
 }
 
 type Material struct {
-	CertificatePEM   []byte
-	PrivateKeyPEM    []byte
+	CertificatePEM    []byte
+	PrivateKeyPEM     []byte
 	FingerprintSHA256 string
 	NotAfter          time.Time
 }
@@ -99,8 +99,8 @@ func GenerateSelfSigned(options SelfSignedOptions) (Material, error) {
 	}
 
 	return Material{
-		CertificatePEM:   pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}),
-		PrivateKeyPEM:    pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER}),
+		CertificatePEM:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}),
+		PrivateKeyPEM:     pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER}),
 		FingerprintSHA256: fingerprint(certificateDER),
 		NotAfter:          template.NotAfter,
 	}, nil
