@@ -6,12 +6,21 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"strings"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 )
 
 var nodeIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var transportPathPattern = regexp.MustCompile(`^/[A-Za-z0-9/_-]{1,128}$`)
+var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var realityShortIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{0,16}$`)
+
+const (
+	TransportWebSocket = "websocket"
+	TransportGRPC      = "grpc"
+)
 
 type ServerInput struct {
 	Nodes         []InboundNode
@@ -25,6 +34,7 @@ type InboundNode struct {
 	Listeners  []netip.Addr
 	Credential Credential
 	TLS        TLSConfig
+	Transport  TransportConfig
 }
 
 type Credential struct {
@@ -36,8 +46,23 @@ type Credential struct {
 
 type TLSConfig struct {
 	Enabled         bool
+	ServerName      string
 	CertificatePath string
 	KeyPath         string
+	Reality         *RealityConfig
+}
+
+type RealityConfig struct {
+	HandshakeServer string
+	HandshakePort   int
+	PrivateKey      string
+	ShortID         string
+}
+
+type TransportConfig struct {
+	Type        string
+	Path        string
+	ServiceName string
 }
 
 type serverConfig struct {
@@ -120,7 +145,66 @@ func validateInboundNode(node InboundNode) error {
 	if err := validateCredential(node.Protocol, node.Credential); err != nil {
 		return err
 	}
-	if node.TLS.Enabled && (node.TLS.CertificatePath == "" || node.TLS.KeyPath == "") {
+	if err := validateTransport(node); err != nil {
+		return err
+	}
+	if err := validateTLS(node); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateTransport(node InboundNode) error {
+	transport := node.Transport
+	if transport.Type == "" {
+		return nil
+	}
+	if node.Protocol != domain.ProtocolVLESS && node.Protocol != domain.ProtocolVMess {
+		return errors.New("transport is only supported for VLESS and VMess")
+	}
+	if !node.TLS.Enabled {
+		return errors.New("configured transport requires TLS")
+	}
+	switch transport.Type {
+	case TransportWebSocket:
+		if !transportPathPattern.MatchString(transport.Path) || strings.Contains(transport.Path, "..") {
+			return errors.New("invalid WebSocket path")
+		}
+		if transport.ServiceName != "" {
+			return errors.New("WebSocket transport cannot use a gRPC service name")
+		}
+	case TransportGRPC:
+		if !serviceNamePattern.MatchString(transport.ServiceName) {
+			return errors.New("invalid gRPC service name")
+		}
+		if transport.Path != "" {
+			return errors.New("gRPC transport cannot use a WebSocket path")
+		}
+	default:
+		return fmt.Errorf("unsupported transport %q", transport.Type)
+	}
+	return nil
+}
+
+func validateTLS(node InboundNode) error {
+	tls := node.TLS
+	if tls.Reality != nil {
+		if !tls.Enabled || node.Protocol != domain.ProtocolVLESS || node.Transport.Type != "" {
+			return errors.New("Reality requires VLESS over TCP with TLS enabled")
+		}
+		reality := tls.Reality
+		if reality.HandshakeServer == "" || strings.ContainsAny(reality.HandshakeServer, " /\\") {
+			return errors.New("invalid Reality handshake server")
+		}
+		if reality.HandshakePort < 1 || reality.HandshakePort > 65535 {
+			return errors.New("invalid Reality handshake port")
+		}
+		if reality.PrivateKey == "" || !realityShortIDPattern.MatchString(reality.ShortID) {
+			return errors.New("Reality private key and hexadecimal short ID are required")
+		}
+		return nil
+	}
+	if tls.Enabled && (tls.CertificatePath == "" || tls.KeyPath == "") {
 		return errors.New("TLS certificate and key paths are required")
 	}
 	return nil
@@ -179,11 +263,40 @@ func buildInbound(node InboundNode, listener netip.Addr) (map[string]any, error)
 		return nil, fmt.Errorf("unsupported protocol %q", node.Protocol)
 	}
 	if node.TLS.Enabled {
-		inbound["tls"] = map[string]any{
+		tls := map[string]any{
 			"enabled":          true,
 			"certificate_path": node.TLS.CertificatePath,
 			"key_path":         node.TLS.KeyPath,
 		}
+		if node.TLS.ServerName != "" {
+			tls["server_name"] = node.TLS.ServerName
+		}
+		if reality := node.TLS.Reality; reality != nil {
+			delete(tls, "certificate_path")
+			delete(tls, "key_path")
+			tls["reality"] = map[string]any{
+				"enabled": true,
+				"handshake": map[string]any{
+					"server":      reality.HandshakeServer,
+					"server_port": reality.HandshakePort,
+				},
+				"private_key": reality.PrivateKey,
+				"short_id":    []string{reality.ShortID},
+			}
+		}
+		inbound["tls"] = tls
+	}
+	if node.Transport.Type != "" {
+		transport := map[string]any{}
+		switch node.Transport.Type {
+		case TransportWebSocket:
+			transport["type"] = "ws"
+			transport["path"] = node.Transport.Path
+		case TransportGRPC:
+			transport["type"] = "grpc"
+			transport["service_name"] = node.Transport.ServiceName
+		}
+		inbound["transport"] = transport
 	}
 	return inbound, nil
 }
