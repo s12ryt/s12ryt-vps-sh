@@ -481,3 +481,80 @@ EOF
     [ "$(sha256sum "${S12RYT_PROJECT_ROOT}/config/config.json")" = "$old_config_hash" ]
     [ "$(grep -Fxc 'systemctl restart s12ryt-ipv6.service' "$MOCK_LOG")" -eq 2 ]
 }
+
+@test "systemd 卸載可保留設定機密與備份但移除服務和 binary" {
+    create_installed_ipv6_project
+    create_command_mock systemctl
+    mkdir -p "${S12RYT_PROJECT_ROOT}/backups/update.saved"
+    printf 'backup-sentinel\n' > "${S12RYT_PROJECT_ROOT}/backups/update.saved/sentinel"
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    mkdir -p "${unit_path%/*}"
+    printf 'unit-sentinel\n' > "$unit_path"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; printf "1\ny\n" | uninstall_ipv6_project_state systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [ ! -e "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    [ ! -e "${S12RYT_PROJECT_ROOT}/bin/sing-box" ]
+    [ ! -e "$unit_path" ]
+    [ -s "${S12RYT_PROJECT_ROOT}/config/config.json" ]
+    [ -s "${S12RYT_PROJECT_ROOT}/secrets/management.password" ]
+    [ -s "${S12RYT_PROJECT_ROOT}/backups/update.saved/sentinel" ]
+    grep -Fxq 'systemctl disable --now s12ryt-ipv6.service' "$MOCK_LOG"
+    grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
+}
+
+@test "OpenRC 完整卸載會反註冊服務並刪除全部專案資料" {
+    create_installed_ipv6_project
+    create_command_mock rc-update
+    create_command_mock rc-service
+    local service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6"
+    local logrotate_path="${TEST_ROOT}/etc/logrotate.d/s12ryt-ipv6"
+    mkdir -p "${service_path%/*}" "${logrotate_path%/*}"
+    printf 'service-sentinel\n' > "$service_path"
+    printf 'logrotate-sentinel\n' > "$logrotate_path"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_OPENRC_SERVICE_PATH="$service_path" \
+        S12RYT_LOGROTATE_PATH="$logrotate_path" \
+        /bin/bash -c 'source "$1"; printf "2\ny\n" | uninstall_ipv6_project_state openrc' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [ ! -e "$S12RYT_PROJECT_ROOT" ]
+    [ ! -e "$service_path" ]
+    [ ! -e "$logrotate_path" ]
+    grep -Fxq 'rc-service s12ryt-ipv6 stop' "$MOCK_LOG"
+    grep -Fxq 'rc-update del s12ryt-ipv6 default' "$MOCK_LOG"
+}
+
+@test "拒絕卸載確認時完全不修改服務與專案資料" {
+    create_installed_ipv6_project
+    create_command_mock systemctl
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+    mkdir -p "${unit_path%/*}"
+    printf 'unit-sentinel\n' > "$unit_path"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; printf "2\nn\n" | uninstall_ipv6_project_state systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"已取消多 IPv6 出站卸載"* ]]
+    [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    [ -s "$unit_path" ]
+    [ ! -s "$MOCK_LOG" ]
+}
