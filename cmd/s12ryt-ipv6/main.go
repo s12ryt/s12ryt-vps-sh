@@ -23,35 +23,54 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeprocess"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
 
 const defaultConfigPath = "/opt/s12ryt-ipv6/config/config.json"
 const defaultPasswordHashPath = "/opt/s12ryt-ipv6/secrets/password.hash"
 const defaultRuntimeStatePath = "/opt/s12ryt-ipv6/state/runtime.json"
+const defaultRuntimeConfigPath = "/opt/s12ryt-ipv6/config/sing-box.json"
+const defaultSingBoxBinaryPath = "/opt/s12ryt-ipv6/bin/sing-box"
+const defaultRuntimeTemporaryDirectory = "/opt/s12ryt-ipv6/tmp"
 const defaultProjectRoot = "/opt/s12ryt-ipv6"
 const shutdownTimeout = 10 * time.Second
+const validationTimeout = 15 * time.Second
 
 type managedHTTPServer interface {
 	Serve(net.Listener) error
 	Shutdown(context.Context) error
 }
 
+type managedRuntime interface {
+	Start() error
+	Reload(context.Context) error
+	Healthy(context.Context) error
+	Stop(context.Context) error
+}
+
 type runtimeOptions struct {
 	ConfigPath             string
 	PasswordHashPath       string
 	RuntimeStatePath       string
+	RuntimeConfigPath      string
+	SingBoxBinaryPath      string
+	RuntimeTemporaryDirectory string
 	Entropy                io.Reader
 	Clock                  func() time.Time
 	PortChecker            projectnetwork.PortAvailabilityChecker
 	PortAllocationAttempts int
 	Listen                 func(string, string) (net.Listener, error)
 	NewHTTPServer          func(string, http.Handler) managedHTTPServer
+	Runtime                managedRuntime
+	ValidateRuntime        func([]byte) error
+	RuntimeOutput          io.Writer
 }
 
 type application struct {
 	address string
 	handler http.Handler
+	runtime managedRuntime
 }
 
 type initializationOptions struct {
@@ -125,6 +144,9 @@ func runCommand(arguments []string, options commandOptions) error {
 			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
 			PasswordHashPath: filepath.Join(options.ProjectRoot, "secrets", "password.hash"),
 			RuntimeStatePath: filepath.Join(options.ProjectRoot, "state", "runtime.json"),
+			RuntimeConfigPath: filepath.Join(options.ProjectRoot, "config", "sing-box.json"),
+			SingBoxBinaryPath: filepath.Join(options.ProjectRoot, "bin", "sing-box"),
+			RuntimeTemporaryDirectory: filepath.Join(options.ProjectRoot, "tmp"),
 			Entropy:          options.Entropy,
 		})
 	}
@@ -419,6 +441,10 @@ func syncRuntimeDirectory(path string) error {
 
 func loadApplication(options runtimeOptions) (application, error) {
 	options = withRuntimeDefaults(options)
+	runtime, validateRuntime, err := buildRuntimeDependencies(options)
+	if err != nil {
+		return application{}, err
+	}
 	configStore := store.NewConfigStore(options.ConfigPath)
 	config, err := configStore.Load()
 	if err != nil {
@@ -445,10 +471,22 @@ func loadApplication(options runtimeOptions) (application, error) {
 	}
 	sessions := auth.NewSessionManager(options.Entropy, options.Clock)
 	limiter := auth.NewLoginLimiter(options.Clock)
+	deploymentApplier, err := runtimeconfig.NewDeploymentApplier(runtimeconfig.DeploymentApplierOptions{
+		RuntimeConfigPath: options.RuntimeConfigPath,
+		ConfigStore:       configStore,
+		StateStore:        runtimeStateStore,
+		Validate:          validateRuntime,
+		Runtime:           runtime,
+	})
+	if err != nil {
+		return application{}, fmt.Errorf("建立資料平面部署服務：%w", err)
+	}
 	nodeManager, err := nodes.NewManager(nodes.ManagerOptions{
-		Config:  config,
-		Store:   configStore,
-		Entropy: options.Entropy,
+		Config:            config,
+		Store:             configStore,
+		Entropy:           options.Entropy,
+		RuntimeState:      &runtimeState,
+		DeploymentApplier: deploymentApplier,
 		AllocatePort: func() (int, error) {
 			return projectnetwork.AllocateNodePort(options.Entropy, options.PortChecker, options.PortAllocationAttempts)
 		},
@@ -469,7 +507,45 @@ func loadApplication(options runtimeOptions) (application, error) {
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
 		handler: server.Handler(),
+		runtime: runtime,
 	}, nil
+}
+
+func buildRuntimeDependencies(options runtimeOptions) (managedRuntime, func([]byte) error, error) {
+	runtime := options.Runtime
+	if runtime == nil {
+		starter, err := runtimeprocess.NewExecStarter(options.RuntimeOutput)
+		if err != nil {
+			return nil, nil, fmt.Errorf("建立 sing-box 程序啟動器：%w", err)
+		}
+		supervisor, err := runtimeprocess.NewSupervisor(runtimeprocess.SupervisorOptions{
+			BinaryPath: options.SingBoxBinaryPath,
+			ConfigPath: options.RuntimeConfigPath,
+			Starter:    starter,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("建立 sing-box 程序監督器：%w", err)
+		}
+		runtime = supervisor
+	}
+
+	validateRuntime := options.ValidateRuntime
+	if validateRuntime == nil {
+		runner, err := runtimeconfig.NewExecValidationRunner(validationTimeout, options.RuntimeOutput)
+		if err != nil {
+			return nil, nil, fmt.Errorf("建立 sing-box 驗證執行器：%w", err)
+		}
+		validator, err := runtimeconfig.NewSingBoxValidator(runtimeconfig.SingBoxValidatorOptions{
+			BinaryPath:         options.SingBoxBinaryPath,
+			TemporaryDirectory: options.RuntimeTemporaryDirectory,
+			Runner:             runner,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("建立 sing-box 設定驗證器：%w", err)
+		}
+		validateRuntime = validator.Validate
+	}
+	return runtime, validateRuntime, nil
 }
 
 func runApplication(ctx context.Context, options runtimeOptions) error {
@@ -478,9 +554,25 @@ func runApplication(ctx context.Context, options runtimeOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := application.runtime.Start(); err != nil {
+		return fmt.Errorf("啟動 sing-box 資料平面：%w", err)
+	}
+	runtimeStarted := true
+	stopRuntime := func() error {
+		if !runtimeStarted {
+			return nil
+		}
+		runtimeStarted = false
+		stopContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := application.runtime.Stop(stopContext); err != nil {
+			return fmt.Errorf("停止 sing-box 資料平面：%w", err)
+		}
+		return nil
+	}
 	listener, err := options.Listen("tcp", application.address)
 	if err != nil {
-		return fmt.Errorf("監聽管理面板 %s：%w", application.address, err)
+		return errors.Join(fmt.Errorf("監聽管理面板 %s：%w", application.address, err), stopRuntime())
 	}
 	defer listener.Close()
 
@@ -493,20 +585,20 @@ func runApplication(ctx context.Context, options runtimeOptions) error {
 	select {
 	case err := <-serveResult:
 		if err == nil || errors.Is(err, http.ErrServerClosed) {
-			return nil
+			return stopRuntime()
 		}
-		return fmt.Errorf("執行管理面板：%w", err)
+		return errors.Join(fmt.Errorf("執行管理面板：%w", err), stopRuntime())
 	case <-ctx.Done():
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownContext); err != nil {
-			return fmt.Errorf("關閉管理面板：%w", err)
+			return errors.Join(fmt.Errorf("關閉管理面板：%w", err), stopRuntime())
 		}
 		err := <-serveResult
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("管理面板關閉後回傳錯誤：%w", err)
+			return errors.Join(fmt.Errorf("管理面板關閉後回傳錯誤：%w", err), stopRuntime())
 		}
-		return nil
+		return stopRuntime()
 	}
 }
 
@@ -519,6 +611,18 @@ func withRuntimeDefaults(options runtimeOptions) runtimeOptions {
 	}
 	if options.RuntimeStatePath == "" {
 		options.RuntimeStatePath = defaultRuntimeStatePath
+	}
+	if options.RuntimeConfigPath == "" {
+		options.RuntimeConfigPath = defaultRuntimeConfigPath
+	}
+	if options.SingBoxBinaryPath == "" {
+		options.SingBoxBinaryPath = defaultSingBoxBinaryPath
+	}
+	if options.RuntimeTemporaryDirectory == "" {
+		options.RuntimeTemporaryDirectory = defaultRuntimeTemporaryDirectory
+	}
+	if options.RuntimeOutput == nil {
+		options.RuntimeOutput = os.Stderr
 	}
 	if options.Entropy == nil {
 		options.Entropy = rand.Reader
