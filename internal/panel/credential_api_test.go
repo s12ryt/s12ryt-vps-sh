@@ -105,12 +105,16 @@ func newCredentialRevealServer(t *testing.T) (*Server, *time.Time) {
 	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	manager := newFakeNodeManager()
+	sessionEntropy := append(
+		bytes.Repeat([]byte{0x62}, 64),
+		bytes.Repeat([]byte{0x63}, 64)...,
+	)
 	server := NewServer(Options{
 		BasePath:     "/abcdefghijkl",
 		PasswordHash: passwordHash,
 		Hasher:       hasher,
 		Sessions: auth.NewSessionManager(
-			bytes.NewReader(bytes.Repeat([]byte{0x62}, 2048)),
+			bytes.NewReader(sessionEntropy),
 			clock,
 		),
 		Limiter:     auth.NewLoginLimiter(clock),
