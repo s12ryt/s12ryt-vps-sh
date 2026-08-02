@@ -75,10 +75,11 @@ type HealthConfig struct {
 }
 
 type Node struct {
-	ID       string   `json:"id"`
-	Protocol Protocol `json:"protocol"`
-	Port     int      `json:"port"`
-	Enabled  bool     `json:"enabled"`
+	ID         string         `json:"id"`
+	Protocol   Protocol       `json:"protocol"`
+	Port       int            `json:"port"`
+	Enabled    bool           `json:"enabled"`
+	Credential NodeCredential `json:"credential"`
 }
 
 type BootstrapSecrets struct {
@@ -187,6 +188,9 @@ func (config Config) Validate() error {
 		}
 		if node.Port < 20000 || node.Port > 49999 {
 			return fmt.Errorf("node %q port %d is outside 20000-49999", node.ID, node.Port)
+		}
+		if err := node.Credential.Validate(node.Protocol); err != nil {
+			return fmt.Errorf("node %q credential is invalid: %w", node.ID, err)
 		}
 	}
 	return nil

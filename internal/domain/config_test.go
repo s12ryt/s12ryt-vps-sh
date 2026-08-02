@@ -92,12 +92,37 @@ func TestConfigValidateAcceptsSupportedProtocolsModesAndTopologies(t *testing.T)
 				config := DefaultConfig()
 				config.Routing.Mode = mode
 				config.Routing.Topology = topology
-				config.Nodes = []Node{{ID: "node-1", Protocol: protocol, Port: 20000, Enabled: true}}
+				config.Nodes = []Node{{
+					ID:         "node-1",
+					Protocol:   protocol,
+					Port:       20000,
+					Enabled:    true,
+					Credential: validTestNodeCredential(protocol),
+				}}
 				if err := config.Validate(); err != nil {
 					t.Fatalf("Validate(%q, %q, %q) error = %v", protocol, mode, topology, err)
 				}
 			}
 		}
+	}
+}
+
+func validTestNodeCredential(protocol Protocol) NodeCredential {
+	uuid := "00112233-4455-4677-8899-aabbccddeeff"
+	password := "abcdefghijklmnopqrstuvwx"
+	switch protocol {
+	case ProtocolVLESS, ProtocolVMess:
+		return NodeCredential{UUID: uuid}
+	case ProtocolHysteria2, ProtocolAnyTLS:
+		return NodeCredential{Password: password}
+	case ProtocolTUIC:
+		return NodeCredential{UUID: uuid, Password: password}
+	case ProtocolSOCKS5:
+		return NodeCredential{Username: "abcdefghijkl", Password: password}
+	case ProtocolShadowsocks:
+		return NodeCredential{Password: password, Method: "aes-256-gcm"}
+	default:
+		return NodeCredential{}
 	}
 }
 
