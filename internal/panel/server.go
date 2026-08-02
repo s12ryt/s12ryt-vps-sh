@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
+	projectshare "github.com/s12ryt/s12ryt-vps-sh/internal/share"
 )
 
 const SessionCookieName = "s12ryt_panel_session"
@@ -64,6 +66,10 @@ type ACMEChallengeChecker interface {
 	Available(context.Context) (bool, error)
 }
 
+type ShareService interface {
+	Bundle(context.Context) (projectshare.Bundle, error)
+}
+
 type Options struct {
 	BasePath             string
 	PasswordHash         string
@@ -76,6 +82,7 @@ type Options struct {
 	RemoteManager        RemoteManager
 	NetworkManager       NetworkManager
 	ACMEChallengeChecker ACMEChallengeChecker
+	ShareService         ShareService
 	Clock                func() time.Time
 }
 
@@ -92,6 +99,7 @@ type Server struct {
 	remoteManager        RemoteManager
 	networkManager       NetworkManager
 	acmeChallengeChecker ACMEChallengeChecker
+	shareService         ShareService
 	clock                func() time.Time
 	elevationMu          sync.Mutex
 	elevations           map[string]time.Time
@@ -118,6 +126,7 @@ func NewServer(options Options) *Server {
 		remoteManager:        options.RemoteManager,
 		networkManager:       options.NetworkManager,
 		acmeChallengeChecker: options.ACMEChallengeChecker,
+		shareService:         options.ShareService,
 		clock:                clock,
 		elevations:           make(map[string]time.Time),
 	}
@@ -160,11 +169,149 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 		server.listNetworkAddresses(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/network/apply":
 		server.applyNetworkIntegration(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/shares/reveal":
+		server.revealShares(response, request)
+	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/shares/"):
+		server.serveShareArtifact(response, request)
 	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/nodes/"):
 		server.handleNamedNode(response, request)
 	default:
 		http.NotFound(response, request)
 	}
+}
+
+type shareArtifactResponse struct {
+	NodeID              string `json:"node_id"`
+	URI                 string `json:"uri"`
+	ClientJSON          string `json:"client_json"`
+	FullClientJSON      string `json:"full_client_json,omitempty"`
+	FullClientBase64    string `json:"full_client_base64,omitempty"`
+	SplitRoutingWarning string `json:"split_routing_warning,omitempty"`
+	QRURL               string `json:"qr_url,omitempty"`
+}
+
+type shareRevealResponse struct {
+	Nodes            []shareArtifactResponse `json:"nodes"`
+	Subscription     string                  `json:"subscription"`
+	ExpiresInSeconds int64                   `json:"expires_in_seconds"`
+}
+
+func (server *Server) revealShares(response http.ResponseWriter, request *http.Request) {
+	if server.shareService == nil {
+		http.Error(response, "分享服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	session, cookie, authorized := server.authorizeCredentialReveal(response, request)
+	if !authorized {
+		return
+	}
+	var input credentialRevealRequest
+	if !decodeStrictJSON(response, request, &input) {
+		return
+	}
+	expiresAt, elevated := server.credentialElevation(cookie.Value)
+	if !elevated {
+		if input.Password == "" {
+			http.Error(response, "請重新輸入管理密碼。", http.StatusUnauthorized)
+			return
+		}
+		verified, err := server.hasher.Verify(server.passwordHash, input.Password)
+		if err != nil {
+			http.Error(response, "面板認證設定無效。", http.StatusInternalServerError)
+			return
+		}
+		if !verified {
+			http.Error(response, "管理密碼錯誤。", http.StatusUnauthorized)
+			return
+		}
+	}
+	bundle, err := server.shareService.Bundle(request.Context())
+	if err != nil {
+		http.Error(response, "無法建立分享資料。", http.StatusBadGateway)
+		return
+	}
+	if !elevated {
+		expiresAt = server.clock().Add(credentialElevationLifetime)
+		server.setCredentialElevation(session.Token, expiresAt)
+	}
+	remaining := expiresAt.Sub(server.clock()) / time.Second
+	if remaining < 0 {
+		remaining = 0
+	}
+	result := shareRevealResponse{
+		Nodes:            make([]shareArtifactResponse, 0, len(bundle.Nodes)),
+		Subscription:     bundle.Subscription,
+		ExpiresInSeconds: int64(remaining),
+	}
+	for _, artifact := range bundle.Nodes {
+		node := shareArtifactResponse{
+			NodeID:              artifact.NodeID,
+			URI:                 artifact.URI,
+			ClientJSON:          string(artifact.ClientJSON),
+			FullClientJSON:      string(artifact.FullClientJSON),
+			FullClientBase64:    artifact.FullClientBase64,
+			SplitRoutingWarning: artifact.SplitRoutingWarning,
+		}
+		if len(artifact.QRPNG) > 0 {
+			node.QRURL = server.basePath + "/api/shares/" + url.PathEscape(artifact.NodeID) + "/qr"
+		}
+		result.Nodes = append(result.Nodes, node)
+	}
+	writeJSON(response, http.StatusOK, result)
+}
+
+func (server *Server) serveShareArtifact(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		response.Header().Set("Allow", "GET")
+		http.Error(response, "不支援的分享操作。", http.StatusMethodNotAllowed)
+		return
+	}
+	remainder := strings.TrimPrefix(request.URL.Path, server.basePath+"/api/shares/")
+	if !strings.HasSuffix(remainder, "/qr") {
+		http.NotFound(response, request)
+		return
+	}
+	nodeID, err := url.PathUnescape(strings.TrimSuffix(remainder, "/qr"))
+	if err != nil || !remoteTagPattern.MatchString(nodeID) {
+		http.Error(response, "分享節點 ID 無效。", http.StatusBadRequest)
+		return
+	}
+	if server.shareService == nil {
+		http.Error(response, "分享服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	cookie, err := request.Cookie(SessionCookieName)
+	if err != nil {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	if _, valid := server.sessions.Lookup(cookie.Value, requestClientIP(request)); !valid {
+		http.Error(response, "登入工作階段無效。", http.StatusUnauthorized)
+		return
+	}
+	if _, elevated := server.credentialElevation(cookie.Value); !elevated {
+		http.Error(response, "請重新輸入管理密碼。", http.StatusUnauthorized)
+		return
+	}
+	bundle, bundleErr := server.shareService.Bundle(request.Context())
+	if bundleErr != nil {
+		http.Error(response, "無法建立分享資料。", http.StatusBadGateway)
+		return
+	}
+	for _, artifact := range bundle.Nodes {
+		if artifact.NodeID != nodeID {
+			continue
+		}
+		if len(artifact.QRPNG) == 0 {
+			http.Error(response, "此節點沒有 QR 圖片。", http.StatusNotFound)
+			return
+		}
+		response.Header().Set("Content-Type", "image/png")
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(artifact.QRPNG)
+		return
+	}
+	http.Error(response, "找不到分享節點。", http.StatusNotFound)
 }
 
 type networkAddressSummary struct {
