@@ -1299,7 +1299,11 @@ configure_ipv6_project() {
 }
 
 uninstall_ipv6_project() {
-    not_implemented
+    local helper
+
+    helper="$(ipv6_helper_path)"
+    ensure_ipv6_helper "$helper" || return 1
+    bash "$helper" uninstall
 }
 
 run_ipv6_project_menu() {
