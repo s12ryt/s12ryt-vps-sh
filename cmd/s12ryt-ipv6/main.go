@@ -548,16 +548,16 @@ func loadApplication(options runtimeOptions) (application, error) {
 		}
 	}
 	server := panel.NewServer(panel.Options{
-		BasePath:       config.Panel.Path,
-		PasswordHash:   passwordHash,
-		Hasher:         hasher,
-		Sessions:       sessions,
-		Limiter:        limiter,
-		Config:         config,
-		Store:          configStore,
-		NodeManager:    nodeManager,
-		RemoteManager:  nodeManager,
-		NetworkManager: networkManager,
+		BasePath:             config.Panel.Path,
+		PasswordHash:         passwordHash,
+		Hasher:               hasher,
+		Sessions:             sessions,
+		Limiter:              limiter,
+		Config:               config,
+		Store:                configStore,
+		NodeManager:          nodeManager,
+		RemoteManager:        nodeManager,
+		NetworkManager:       networkManager,
 		ACMEChallengeChecker: options.ACMEChallengeChecker,
 	})
 	return application{
