@@ -8,9 +8,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -65,6 +67,7 @@ type commandOptions struct {
 	Entropy     io.Reader
 	Output      io.Writer
 	Context     context.Context
+	Addresses   func() ([]netip.Addr, error)
 }
 
 func main() {
@@ -105,6 +108,12 @@ func runCommand(arguments []string, options commandOptions) error {
 		fmt.Fprintf(options.Output, "初始管理密碼：%s\nWeb 路徑：%s\n管理埠：%d\n", result.Password, result.WebPath, result.Port)
 		return nil
 	}
+	if len(arguments) == 1 && arguments[0] == "status" {
+		if options.Addresses == nil {
+			options.Addresses = systemGlobalAddresses
+		}
+		return printProjectStatus(options.ProjectRoot, options.Output, options.Addresses)
+	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
 		return runApplication(options.Context, runtimeOptions{
 			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
@@ -112,7 +121,77 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:          options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status]")
+}
+
+func printProjectStatus(projectRoot string, output io.Writer, addresses func() ([]netip.Addr, error)) error {
+	config, err := store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")).Load()
+	if err != nil {
+		return fmt.Errorf("讀取面板設定：%w", err)
+	}
+	password, err := readProtectedSecret(filepath.Join(projectRoot, "secrets", "management.password"), "管理密碼")
+	if err != nil {
+		return err
+	}
+	availableAddresses, err := addresses()
+	if err != nil {
+		return fmt.Errorf("取得管理面板位址：%w", err)
+	}
+	var ipv4URL, ipv6URL string
+	for _, address := range availableAddresses {
+		if !address.IsValid() || !address.IsGlobalUnicast() {
+			continue
+		}
+		url := "http://" + net.JoinHostPort(address.String(), strconv.Itoa(config.Panel.Port)) + config.Panel.Path
+		if address.Is4() && ipv4URL == "" {
+			ipv4URL = url
+		}
+		if address.Is6() && ipv6URL == "" {
+			ipv6URL = url
+		}
+	}
+	if ipv4URL == "" {
+		ipv4URL = "{未獲取到}"
+	}
+	if ipv6URL == "" {
+		ipv6URL = "{未獲取到}"
+	}
+	fmt.Fprintf(output, "ipv4: %s\nipv6: %s\n管理密碼：%s\nWeb 路徑：%s\n管理埠：%d\n", ipv4URL, ipv6URL, password, config.Panel.Path, config.Panel.Port)
+	return nil
+}
+
+func systemGlobalAddresses() ([]netip.Addr, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var result []netip.Addr
+	seen := make(map[netip.Addr]struct{})
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addresses, err := networkInterface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		for _, networkAddress := range addresses {
+			prefix, err := netip.ParsePrefix(networkAddress.String())
+			if err != nil {
+				continue
+			}
+			address := prefix.Addr().Unmap()
+			if !address.IsGlobalUnicast() || address.IsLoopback() || address.IsLinkLocalUnicast() {
+				continue
+			}
+			if _, exists := seen[address]; exists {
+				continue
+			}
+			seen[address] = struct{}{}
+			result = append(result, address)
+		}
+	}
+	return result, nil
 }
 
 func initializeProject(options initializationOptions) (initializationResult, error) {
@@ -367,4 +446,26 @@ func readProtectedPasswordHash(path string) (string, error) {
 		return "", errors.New("管理密碼雜湊不得為空")
 	}
 	return passwordHash, nil
+}
+
+func readProtectedSecret(path string, label string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("讀取%s資訊：%w", label, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s必須是一般檔案", label)
+	}
+	if info.Mode().Perm() != 0o600 {
+		return "", fmt.Errorf("%s權限必須是 0600，目前為 %04o", label, info.Mode().Perm())
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("讀取%s：%w", label, err)
+	}
+	value := strings.TrimSpace(string(contents))
+	if value == "" {
+		return "", fmt.Errorf("%s不得為空", label)
+	}
+	return value, nil
 }
