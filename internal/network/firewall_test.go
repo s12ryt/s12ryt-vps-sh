@@ -36,7 +36,7 @@ func TestDetectFirewallBackendRequiresOneActiveSupportedBackend(t *testing.T) {
 
 func TestBuildFirewallPlanCreatesMinimalProjectOwnedRules(t *testing.T) {
 	input := FirewallInput{
-		PanelPort:   34456,
+		PanelPort:    34456,
 		AllowedCIDRs: []string{"198.51.100.0/24", "2001:db8:1::/64"},
 		NodePorts: []PortRule{
 			{Port: 24001, Protocol: "tcp"},
