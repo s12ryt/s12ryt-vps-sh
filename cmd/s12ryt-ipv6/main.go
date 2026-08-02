@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -107,11 +108,19 @@ type initializationResult struct {
 type commandOptions struct {
 	ProjectRoot         string
 	Entropy             io.Reader
+	Input               io.Reader
 	Output              io.Writer
 	Context             context.Context
 	Addresses           func() ([]netip.Addr, error)
 	IntegrationCleaner  integrationCleaner
 	IntegrationRestorer integrationRestorer
+}
+
+type passwordResetOptions struct {
+	ProjectRoot string
+	Password    string
+	Entropy     io.Reader
+	Rename      func(string, string) error
 }
 
 func main() {
@@ -137,6 +146,9 @@ func runCommand(arguments []string, options commandOptions) error {
 	if options.Output == nil {
 		options.Output = os.Stdout
 	}
+	if options.Input == nil {
+		options.Input = os.Stdin
+	}
 	if options.Context == nil {
 		options.Context = context.Background()
 	}
@@ -160,6 +172,34 @@ func runCommand(arguments []string, options commandOptions) error {
 	}
 	if len(arguments) == 1 && arguments[0] == "health-url" {
 		return printHealthURL(options.ProjectRoot, options.Output)
+	}
+	if len(arguments) >= 1 && arguments[0] == "reset-password" {
+		var password string
+		if len(arguments) == 2 && arguments[1] == "--generate" {
+			secrets, err := domain.GenerateBootstrapSecrets(options.Entropy)
+			if err != nil {
+				return fmt.Errorf("產生管理密碼：%w", err)
+			}
+			password = secrets.Password
+		} else if len(arguments) == 1 {
+			var err error
+			password, err = readPasswordInput(options.Input)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.New("用法：s12ryt-ipv6 reset-password [--generate]")
+		}
+		password, err := resetManagementPassword(passwordResetOptions{
+			ProjectRoot: options.ProjectRoot,
+			Password:    password,
+			Entropy:     options.Entropy,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(options.Output, "管理密碼已重設：%s\n", password)
+		return nil
 	}
 	if len(arguments) == 1 && arguments[0] == "cleanup-system" {
 		cleaner := options.IntegrationCleaner
@@ -202,7 +242,167 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:                   options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|restore-system|cleanup-system]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|reset-password|restore-system|cleanup-system]")
+}
+
+func readPasswordInput(input io.Reader) (string, error) {
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 256), 4096)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", fmt.Errorf("讀取新管理密碼：%w", err)
+		}
+		return "", errors.New("未提供新管理密碼")
+	}
+	password := strings.TrimSuffix(scanner.Text(), "\r")
+	if scanner.Scan() {
+		return "", errors.New("新管理密碼只能輸入一行")
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("讀取新管理密碼：%w", err)
+	}
+	return password, nil
+}
+
+func resetManagementPassword(options passwordResetOptions) (string, error) {
+	if options.ProjectRoot == "" {
+		options.ProjectRoot = defaultProjectRoot
+	}
+	if options.Entropy == nil {
+		options.Entropy = rand.Reader
+	}
+	if options.Rename == nil {
+		options.Rename = os.Rename
+	}
+	if !validManagementPassword(options.Password) {
+		return "", errors.New("管理密碼必須是至少 24 位英數字")
+	}
+
+	directory := filepath.Join(options.ProjectRoot, "secrets")
+	hashPath := filepath.Join(directory, "password.hash")
+	plainPath := filepath.Join(directory, "management.password")
+	currentHash, err := readProtectedSecret(hashPath, "管理密碼雜湊")
+	if err != nil {
+		return "", err
+	}
+	currentPassword, err := readProtectedSecret(plainPath, "管理密碼")
+	if err != nil {
+		return "", err
+	}
+	verified, err := auth.NewPasswordHasher(nil).Verify(currentHash, currentPassword)
+	if err != nil || !verified {
+		return "", errors.New("現有管理密碼與雜湊不一致，拒絕重設")
+	}
+	newHash, err := auth.NewPasswordHasher(options.Entropy).Hash(options.Password)
+	if err != nil {
+		return "", fmt.Errorf("建立新管理密碼雜湊：%w", err)
+	}
+
+	transactionDirectory, err := os.MkdirTemp(directory, ".management-credentials.*")
+	if err != nil {
+		return "", fmt.Errorf("建立管理憑證交易目錄：%w", err)
+	}
+	cleanupTransaction := true
+	defer func() {
+		if cleanupTransaction {
+			_ = os.RemoveAll(transactionDirectory)
+		}
+	}()
+	if err := os.Chmod(transactionDirectory, 0o700); err != nil {
+		return "", fmt.Errorf("保護管理憑證交易目錄：%w", err)
+	}
+
+	newHashPath := filepath.Join(transactionDirectory, "new-password.hash")
+	newPlainPath := filepath.Join(transactionDirectory, "new-management.password")
+	backupHashPath := filepath.Join(transactionDirectory, "old-password.hash")
+	backupPlainPath := filepath.Join(transactionDirectory, "old-management.password")
+	if err := writeCredentialTransactionFile(newHashPath, newHash+"\n"); err != nil {
+		return "", err
+	}
+	if err := writeCredentialTransactionFile(newPlainPath, options.Password+"\n"); err != nil {
+		return "", err
+	}
+	if err := os.Link(hashPath, backupHashPath); err != nil {
+		return "", fmt.Errorf("備份管理密碼雜湊：%w", err)
+	}
+	if err := os.Link(plainPath, backupPlainPath); err != nil {
+		return "", fmt.Errorf("備份管理密碼：%w", err)
+	}
+	if err := syncRuntimeDirectory(transactionDirectory); err != nil {
+		return "", fmt.Errorf("同步管理憑證交易目錄：%w", err)
+	}
+
+	hashInstalled := false
+	plainInstalled := false
+	commitErr := options.Rename(newHashPath, hashPath)
+	if commitErr == nil {
+		hashInstalled = true
+		commitErr = options.Rename(newPlainPath, plainPath)
+	}
+	if commitErr == nil {
+		plainInstalled = true
+		commitErr = syncRuntimeDirectory(directory)
+	}
+	if commitErr != nil {
+		rollbackErr := rollbackManagementCredentials(options.Rename, hashInstalled, plainInstalled, hashPath, plainPath, backupHashPath, backupPlainPath, directory)
+		if rollbackErr != nil {
+			cleanupTransaction = false
+			return "", errors.Join(fmt.Errorf("提交管理憑證：%w", commitErr), fmt.Errorf("回復管理憑證失敗，備份保留於 %s：%w", transactionDirectory, rollbackErr))
+		}
+		return "", fmt.Errorf("提交管理憑證：%w", commitErr)
+	}
+	return options.Password, nil
+}
+
+func validManagementPassword(password string) bool {
+	if len(password) < 24 {
+		return false
+	}
+	for _, character := range []byte(password) {
+		if (character < '0' || character > '9') &&
+			(character < 'A' || character > 'Z') &&
+			(character < 'a' || character > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func writeCredentialTransactionFile(path string, contents string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("建立管理憑證暫存檔：%w", err)
+	}
+	if _, err := io.WriteString(file, contents); err != nil {
+		file.Close()
+		return fmt.Errorf("寫入管理憑證暫存檔：%w", err)
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return fmt.Errorf("同步管理憑證暫存檔：%w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("關閉管理憑證暫存檔：%w", err)
+	}
+	return nil
+}
+
+func rollbackManagementCredentials(rename func(string, string) error, hashInstalled bool, plainInstalled bool, hashPath string, plainPath string, backupHashPath string, backupPlainPath string, directory string) error {
+	var rollbackErrors []error
+	if plainInstalled {
+		if err := rename(backupPlainPath, plainPath); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("回復管理密碼：%w", err))
+		}
+	}
+	if hashInstalled {
+		if err := rename(backupHashPath, hashPath); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("回復管理密碼雜湊：%w", err))
+		}
+	}
+	if err := syncRuntimeDirectory(directory); err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("同步管理憑證目錄：%w", err))
+	}
+	return errors.Join(rollbackErrors...)
 }
 
 func newIntegrationStateManager(projectRoot string, output io.Writer) (integrationStateManager, error) {
