@@ -210,6 +210,32 @@ test('狀態變更會停用控制、防止重複提交並可在失敗後重試',
   await expect(notice).toContainText('操作已完成');
 });
 
+test('節點監聽錯誤會關聯欄位、移動焦點並可在修正後清除', async ({ page }) => {
+  await login(page);
+  await page.getByRole('tab', { name: '節點' }).click();
+  await page.getByRole('button', { name: '新增節點' }).click();
+
+  const modal = page.locator('[data-modal="node-editor"]');
+  const ipv4 = modal.getByLabel('IPv4 監聽地址');
+  const ipv6 = modal.getByLabel('IPv6 監聽地址');
+  const fieldError = modal.locator('[data-node-listener-error]');
+  await modal.getByLabel('節點 ID').fill('edge-ui');
+  await modal.getByRole('button', { name: '確認並套用' }).click();
+
+  await expect(fieldError).toBeVisible();
+  await expect(fieldError).toContainText('至少需要一個 IPv4 或 IPv6 監聽地址');
+  await expect(ipv4).toHaveAttribute('aria-invalid', 'true');
+  await expect(ipv6).toHaveAttribute('aria-invalid', 'true');
+  await expect(ipv4).toHaveAttribute('aria-describedby', /node-listener-error/);
+  await expect(ipv6).toHaveAttribute('aria-describedby', /node-listener-error/);
+  await expect(ipv4).toBeFocused();
+
+  await ipv6.fill('2001:db8::10');
+  await expect(fieldError).toBeHidden();
+  await expect(ipv4).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(ipv6).not.toHaveAttribute('aria-invalid', 'true');
+});
+
 test('版面無水平溢出或主要導覽重疊且不載入外部資產', async ({ page }) => {
   const externalRequests: string[] = [];
   page.on('request', (request) => {
