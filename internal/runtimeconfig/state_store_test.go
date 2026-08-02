@@ -97,7 +97,7 @@ func TestDeploymentStateStoreKeepsBackupAndRejectsInvalidReplacement(t *testing.
 
 func TestDeploymentStateStoreRejectsUnknownJSONFields(t *testing.T) {
 	for name, payload := range map[string]string{
-		"top level": `{"schema_version":1,"nodes":[],"ipv6_outbounds":[],"unknown":true}`,
+		"top level":  `{"schema_version":1,"nodes":[],"ipv6_outbounds":[],"unknown":true}`,
 		"nested TLS": `{"schema_version":1,"nodes":[{"node_id":"edge","listeners":["2001:db8::7"],"tls":{"enabled":false,"unknown":true},"transport":{}}],"ipv6_outbounds":["2001:db8:1::10"]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -118,7 +118,7 @@ func TestDeploymentStateStoreRejectsUnknownJSONFields(t *testing.T) {
 
 func TestDeploymentStateValidationRejectsUnsafeState(t *testing.T) {
 	for name, mutate := range map[string]func(*DeploymentState){
-		"schema": func(state *DeploymentState) { state.SchemaVersion = 2 },
+		"schema":  func(state *DeploymentState) { state.SchemaVersion = 2 },
 		"node ID": func(state *DeploymentState) { state.Nodes[0].NodeID = "../edge" },
 		"duplicate node": func(state *DeploymentState) {
 			state.Nodes = append(state.Nodes, state.Nodes[0])
