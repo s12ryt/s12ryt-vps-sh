@@ -176,6 +176,27 @@ func (store *Store) Save(manifest Manifest) error {
 	return nil
 }
 
+func (store *Store) Remove() error {
+	paths := []string{store.path, store.path + ".bak"}
+	existing := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if _, err := readProtectedManifest(path); err == nil {
+			existing = append(existing, path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("validate integration manifest removal target: %w", err)
+		}
+	}
+	for index := len(existing) - 1; index >= 0; index-- {
+		if err := os.Remove(existing[index]); err != nil {
+			return fmt.Errorf("remove integration manifest: %w", err)
+		}
+	}
+	if len(existing) > 0 {
+		return syncManifestDirectory(filepath.Dir(store.path))
+	}
+	return nil
+}
+
 func (manifest Manifest) networkValues() (netip.Prefix, netip.Addr, []netip.Addr, error) {
 	prefix, err := netip.ParsePrefix(manifest.Prefix)
 	if err != nil || !prefix.Addr().Is6() || !prefix.Addr().IsGlobalUnicast() || prefix.Bits() >= 128 {
