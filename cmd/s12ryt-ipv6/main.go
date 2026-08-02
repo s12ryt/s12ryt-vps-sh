@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
+	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
@@ -29,12 +31,14 @@ type managedHTTPServer interface {
 }
 
 type runtimeOptions struct {
-	ConfigPath       string
-	PasswordHashPath string
-	Entropy          io.Reader
-	Clock            func() time.Time
-	Listen           func(string, string) (net.Listener, error)
-	NewHTTPServer    func(string, http.Handler) managedHTTPServer
+	ConfigPath             string
+	PasswordHashPath       string
+	Entropy                io.Reader
+	Clock                  func() time.Time
+	PortChecker            projectnetwork.PortAvailabilityChecker
+	PortAllocationAttempts int
+	Listen                 func(string, string) (net.Listener, error)
+	NewHTTPServer          func(string, http.Handler) managedHTTPServer
 }
 
 type application struct {
@@ -72,6 +76,17 @@ func loadApplication(options runtimeOptions) (application, error) {
 	}
 	sessions := auth.NewSessionManager(options.Entropy, options.Clock)
 	limiter := auth.NewLoginLimiter(options.Clock)
+	nodeManager, err := nodes.NewManager(nodes.ManagerOptions{
+		Config:  config,
+		Store:   configStore,
+		Entropy: options.Entropy,
+		AllocatePort: func() (int, error) {
+			return projectnetwork.AllocateNodePort(options.Entropy, options.PortChecker, options.PortAllocationAttempts)
+		},
+	})
+	if err != nil {
+		return application{}, fmt.Errorf("建立節點管理服務：%w", err)
+	}
 	server := panel.NewServer(panel.Options{
 		BasePath:     config.Panel.Path,
 		PasswordHash: passwordHash,
@@ -80,6 +95,7 @@ func loadApplication(options runtimeOptions) (application, error) {
 		Limiter:      limiter,
 		Config:       config,
 		Store:        configStore,
+		NodeManager:  nodeManager,
 	})
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
@@ -137,6 +153,12 @@ func withRuntimeDefaults(options runtimeOptions) runtimeOptions {
 	}
 	if options.Clock == nil {
 		options.Clock = time.Now
+	}
+	if options.PortChecker == nil {
+		options.PortChecker = projectnetwork.NewSystemSocketPortChecker()
+	}
+	if options.PortAllocationAttempts == 0 {
+		options.PortAllocationAttempts = 128
 	}
 	if options.Listen == nil {
 		options.Listen = net.Listen
