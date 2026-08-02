@@ -689,7 +689,8 @@ configure_ipv6_project_state() {
 
 uninstall_ipv6_project_state() {
     local init_system="$1"
-    local project_root choice confirmation unit_path service_path logrotate_path panel_binary manifest_path
+    local project_root choice confirmation unit_path network_unit_path
+    local service_path network_service_path logrotate_path panel_binary manifest_path
 
     project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
     if [[ "$project_root" != /* || "${project_root##*/}" != "s12ryt-ipv6" ]]; then
@@ -743,24 +744,38 @@ uninstall_ipv6_project_state() {
 
     if [[ "$init_system" == "systemd" ]]; then
         unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
+        network_unit_path="${S12RYT_SYSTEMD_NETWORK_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6-network.service}"
         if ! systemctl disable --now s12ryt-ipv6.service; then
             printf '錯誤：無法停用 systemd 服務，未移除專案資料。\n' >&2
             return 1
         fi
-        rm -f -- "$unit_path"
+        if ! systemctl disable --now s12ryt-ipv6-network.service; then
+            systemctl enable --now s12ryt-ipv6.service >/dev/null 2>&1 || true
+            printf '錯誤：無法停用 systemd 網路恢復服務，未移除專案資料。\n' >&2
+            return 1
+        fi
+        rm -f -- "$unit_path" "$network_unit_path"
         if ! systemctl daemon-reload; then
             printf '錯誤：systemd daemon-reload 失敗。\n' >&2
             return 1
         fi
     else
         service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
+        network_service_path="${S12RYT_OPENRC_NETWORK_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6-network}"
         logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
         rc-service s12ryt-ipv6 stop >/dev/null 2>&1 || true
+        rc-service s12ryt-ipv6-network stop >/dev/null 2>&1 || true
         if ! rc-update del s12ryt-ipv6 default; then
             printf '錯誤：無法反註冊 OpenRC 服務，未移除專案資料。\n' >&2
             return 1
         fi
-        rm -f -- "$service_path" "$logrotate_path"
+        if ! rc-update del s12ryt-ipv6-network default; then
+            rc-update add s12ryt-ipv6 default >/dev/null 2>&1 || true
+            rc-service s12ryt-ipv6 start >/dev/null 2>&1 || true
+            printf '錯誤：無法反註冊 OpenRC 網路恢復服務，未移除專案資料。\n' >&2
+            return 1
+        fi
+        rm -f -- "$service_path" "$network_service_path" "$logrotate_path"
     fi
 
     if [[ "$choice" == "1" ]]; then
