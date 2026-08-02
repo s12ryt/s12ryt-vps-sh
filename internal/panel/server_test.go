@@ -58,6 +58,33 @@ func TestLoginPageWarnsAboutPublicHTTPAndHasNoExternalAssets(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointIsUnauthenticatedMinimalAndPathScoped(t *testing.T) {
+	server := newTestServer(t)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl/healthz", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want 200", response.Code)
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("health Cache-Control = %q", response.Header().Get("Cache-Control"))
+	}
+	if response.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("health Content-Type = %q", response.Header().Get("Content-Type"))
+	}
+	if strings.TrimSpace(response.Body.String()) != `{"status":"ok"}` {
+		t.Fatalf("health body = %q", response.Body.String())
+	}
+
+	wrongPath := httptest.NewRecorder()
+	server.Handler().ServeHTTP(wrongPath, httptest.NewRequest(http.MethodGet, "http://panel.test/healthz", nil))
+	if wrongPath.Code != http.StatusNotFound {
+		t.Fatalf("unscoped health status = %d, want 404", wrongPath.Code)
+	}
+}
+
 func TestSuccessfulLoginSetsSessionCookieWithRequiredAttributes(t *testing.T) {
 	server := newTestServer(t)
 	response := login(t, server, "panel-password", "198.51.100.8")

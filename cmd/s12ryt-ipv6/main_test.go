@@ -267,6 +267,28 @@ func TestRunStatusCommandReportsMissingAddressesAndRejectsUnprotectedPassword(t 
 	}
 }
 
+func TestRunHealthURLCommandPrintsLoopbackEndpointOnly(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	result, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3b}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	var output bytes.Buffer
+	if err := runCommand([]string{"health-url"}, commandOptions{ProjectRoot: projectRoot, Output: &output}); err != nil {
+		t.Fatalf("runCommand(health-url) error = %v", err)
+	}
+	want := "http://127.0.0.1:34456" + result.WebPath + "/healthz\n"
+	if output.String() != want {
+		t.Fatalf("health-url output = %q, want %q", output.String(), want)
+	}
+	if strings.Contains(output.String(), result.Password) {
+		t.Fatal("health-url output leaked management password")
+	}
+}
+
 func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o644)
 	_, err := loadApplication(runtimeOptions{
