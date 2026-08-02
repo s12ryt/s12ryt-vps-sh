@@ -188,6 +188,55 @@ func TestDashboardUsesRequiredNavigationOrderAndModalContract(t *testing.T) {
 	}
 }
 
+func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
+	server := newTestServer(t)
+	cookie, _ := authenticatedSession(t, server, "198.51.100.8")
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	request.AddCookie(cookie)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("dashboard status = %d, want 200", response.Code)
+	}
+	body := response.Body.String()
+
+	for _, expected := range []string{
+		`data-section-target="routing"`,
+		`data-section-target="topology"`,
+		`data-section-target="protocols"`,
+		`data-config-endpoint="/abcdefghijkl/api/config"`,
+		`data-validate-endpoint="/abcdefghijkl/api/config/validate"`,
+		`data-apply-endpoint="/abcdefghijkl/api/config/apply"`,
+		`name="routing_mode" value="client-ipv4"`,
+		`name="routing_mode" value="vps-ipv4" checked`,
+		`name="routing_mode" value="ipv6-only"`,
+		`name="topology" value="multi-ipv6-multi-node" checked`,
+		`name="topology" value="single-ipv6-single-node"`,
+		`name="topology" value="multi-ipv6-rotating-node"`,
+		`name="topology" value="multi-ipv6-rotating-nodes"`,
+		`data-protocol="vless"`,
+		`data-protocol="vmess"`,
+		`data-protocol="hysteria2"`,
+		`data-protocol="tuic"`,
+		`data-protocol="socks5"`,
+		`data-protocol="anytls"`,
+		`data-protocol="shadowsocks"`,
+		`X-CSRF-Token`,
+		`X-S12ryt-Confirm`,
+		`data-config-diff`,
+		`data-config-error`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("dashboard missing configuration marker %q", expected)
+		}
+	}
+	if strings.Count(body, `data-modal-backdrop="static"`) != 3 {
+		t.Fatalf("static modal count = %d, want 3", strings.Count(body, `data-modal-backdrop="static"`))
+	}
+}
+
 func TestStateChangingAPIRequiresSessionClientBindingAndCSRF(t *testing.T) {
 	server := newTestServer(t)
 	loginResponse := login(t, server, "panel-password", "198.51.100.8")
