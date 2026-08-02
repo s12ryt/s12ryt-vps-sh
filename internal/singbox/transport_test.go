@@ -108,7 +108,9 @@ func TestGenerateServerConfigRejectsUnsafeTransportAndReality(t *testing.T) {
 	}{
 		{name: "unsupported transport", mutate: func(node *InboundNode) { node.Transport = TransportConfig{Type: "quic"} }},
 		{name: "WebSocket missing path", mutate: func(node *InboundNode) { node.Transport = TransportConfig{Type: TransportWebSocket} }},
-		{name: "gRPC unsafe service", mutate: func(node *InboundNode) { node.Transport = TransportConfig{Type: TransportGRPC, ServiceName: "../service"} }},
+		{name: "gRPC unsafe service", mutate: func(node *InboundNode) {
+			node.Transport = TransportConfig{Type: TransportGRPC, ServiceName: "../service"}
+		}},
 		{name: "transport on Hysteria2", mutate: func(node *InboundNode) {
 			node.Protocol = domain.ProtocolHysteria2
 			node.Credential = Credential{Password: "password"}
