@@ -420,6 +420,29 @@ install_verified_ipv6_bundle() {
     printf '多 IPv6 出站面板安裝完成。\n'
 }
 
+install_ipv6_project_release() {
+    local machine_arch architecture init_system temporary_root temporary_bundle install_status=0
+
+    check_ipv6_project_preflight || return 1
+    machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
+    architecture="$(map_ipv6_project_arch "$machine_arch")" || return 1
+    init_system="$(detect_ipv6_project_init)"
+    temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-install.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案安裝暫存目錄。\n' >&2
+        return 1
+    }
+    temporary_bundle="${temporary_root}/s12ryt-ipv6-bundle.assets"
+
+    if fetch_ipv6_release_bundle "$temporary_bundle" "$architecture" &&
+        install_verified_ipv6_bundle "$temporary_bundle" "$architecture" "$init_system"; then
+        install_status=0
+    else
+        install_status=$?
+    fi
+    rm -rf -- "$temporary_root"
+    return "$install_status"
+}
+
 main() {
     case "${1:-}" in
         preflight | '')
@@ -432,8 +455,15 @@ main() {
             fi
             fetch_ipv6_release_bundle "$2" "$3"
             ;;
+        install)
+            if (($# != 1)); then
+                printf '用法：%s install\n' "${0##*/}" >&2
+                return 1
+            fi
+            install_ipv6_project_release
+            ;;
         *)
-            printf '用法：%s [preflight|fetch DESTINATION ARCH]\n' "${0##*/}" >&2
+            printf '用法：%s [preflight|fetch DESTINATION ARCH|install]\n' "${0##*/}" >&2
             return 1
             ;;
     esac
