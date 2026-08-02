@@ -100,6 +100,35 @@ jobs:
           grep -Fq 'GNU GENERAL PUBLIC LICENSE' LICENSE
           test "$(git rev-parse HEAD:LICENSE)" = 'f6cdd22a6c1fbc887e08a215cb4beb3c47048041'
 
+  browser-test:
+    name: Playwright browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - name: Install Playwright package
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
   distribution-smoke:
     name: ${{ matrix.name }} smoke
     runs-on: ubuntu-latest
