@@ -131,6 +131,73 @@ func TestIntegrationManagerCleanupKeepsManifestWhenACommandFails(t *testing.T) {
 	}
 }
 
+func TestIntegrationManagerRestoresManifestWithoutRewritingProtectedState(t *testing.T) {
+	events := []string{}
+	current := manifestFixture()
+	repository := &recordingManifestRepository{current: &current, events: &events}
+	runner := &recordingSystemRunner{events: &events}
+	manager, err := NewIntegrationManager(repository, runner)
+	if err != nil {
+		t.Fatalf("NewIntegrationManager() error = %v", err)
+	}
+	if err := manager.Restore(context.Background()); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	assertEventOrder(t, events,
+		"load",
+		"ip -6 addr add 2001:db8:100::10/64 dev eth0",
+		"ip -6 route replace default via fe80::1 dev eth0 src 2001:db8:100::10 table 42000",
+		"nft add table inet s12ryt-ipv6",
+	)
+	if eventEquals(events, "save") || eventEquals(events, "delete") {
+		t.Fatalf("restore rewrote protected manifest: %#v", events)
+	}
+}
+
+func TestIntegrationManagerRestoreIsNoOpWithoutManifest(t *testing.T) {
+	events := []string{}
+	repository := &recordingManifestRepository{loadErr: os.ErrNotExist, events: &events}
+	runner := &recordingSystemRunner{events: &events}
+	manager, err := NewIntegrationManager(repository, runner)
+	if err != nil {
+		t.Fatalf("NewIntegrationManager() error = %v", err)
+	}
+	if err := manager.Restore(context.Background()); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if len(events) != 1 || events[0] != "load" {
+		t.Fatalf("restore without manifest events = %#v, want load only", events)
+	}
+}
+
+func TestIntegrationManagerRestoreRollsBackAttemptedGroupsOnFailure(t *testing.T) {
+	restoreFailure := errors.New("firewall restore failed")
+	events := []string{}
+	current := manifestFixture()
+	repository := &recordingManifestRepository{current: &current, events: &events}
+	runner := &recordingSystemRunner{
+		events:       &events,
+		failContains: "nft add table inet s12ryt-ipv6",
+		failure:      restoreFailure,
+	}
+	manager, err := NewIntegrationManager(repository, runner)
+	if err != nil {
+		t.Fatalf("NewIntegrationManager() error = %v", err)
+	}
+	err = manager.Restore(context.Background())
+	if !errors.Is(err, restoreFailure) {
+		t.Fatalf("Restore() error = %v, want restore failure", err)
+	}
+	assertEventOrder(t, events,
+		"nft delete table inet s12ryt-ipv6",
+		"ip -6 rule del from 2001:db8:100::11/128 lookup 42001 priority 22001",
+		"ip -6 addr del 2001:db8:100::10/64 dev eth0",
+	)
+	if eventEquals(events, "save") || eventEquals(events, "delete") {
+		t.Fatalf("failed restore changed protected manifest: %#v", events)
+	}
+}
+
 func TestIntegrationManagerRejectsUnsafeInputsBeforeSideEffects(t *testing.T) {
 	if _, err := NewIntegrationManager(nil, &recordingSystemRunner{}); err == nil {
 		t.Fatal("NewIntegrationManager(nil repository) succeeded")
@@ -151,6 +218,9 @@ func TestIntegrationManagerRejectsUnsafeInputsBeforeSideEffects(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("invalid manifest caused side effects: %#v", events)
+	}
+	if err := manager.Restore(nil); err == nil {
+		t.Fatal("Restore(nil context) error = nil")
 	}
 }
 
