@@ -50,21 +50,21 @@ type managedRuntime interface {
 }
 
 type runtimeOptions struct {
-	ConfigPath             string
-	PasswordHashPath       string
-	RuntimeStatePath       string
-	RuntimeConfigPath      string
-	SingBoxBinaryPath      string
+	ConfigPath                string
+	PasswordHashPath          string
+	RuntimeStatePath          string
+	RuntimeConfigPath         string
+	SingBoxBinaryPath         string
 	RuntimeTemporaryDirectory string
-	Entropy                io.Reader
-	Clock                  func() time.Time
-	PortChecker            projectnetwork.PortAvailabilityChecker
-	PortAllocationAttempts int
-	Listen                 func(string, string) (net.Listener, error)
-	NewHTTPServer          func(string, http.Handler) managedHTTPServer
-	Runtime                managedRuntime
-	ValidateRuntime        func([]byte) error
-	RuntimeOutput          io.Writer
+	Entropy                   io.Reader
+	Clock                     func() time.Time
+	PortChecker               projectnetwork.PortAvailabilityChecker
+	PortAllocationAttempts    int
+	Listen                    func(string, string) (net.Listener, error)
+	NewHTTPServer             func(string, http.Handler) managedHTTPServer
+	Runtime                   managedRuntime
+	ValidateRuntime           func([]byte) error
+	RuntimeOutput             io.Writer
 }
 
 type application struct {
@@ -141,13 +141,13 @@ func runCommand(arguments []string, options commandOptions) error {
 	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
 		return runApplication(options.Context, runtimeOptions{
-			ConfigPath:       filepath.Join(options.ProjectRoot, "config", "config.json"),
-			PasswordHashPath: filepath.Join(options.ProjectRoot, "secrets", "password.hash"),
-			RuntimeStatePath: filepath.Join(options.ProjectRoot, "state", "runtime.json"),
-			RuntimeConfigPath: filepath.Join(options.ProjectRoot, "config", "sing-box.json"),
-			SingBoxBinaryPath: filepath.Join(options.ProjectRoot, "bin", "sing-box"),
+			ConfigPath:                filepath.Join(options.ProjectRoot, "config", "config.json"),
+			PasswordHashPath:          filepath.Join(options.ProjectRoot, "secrets", "password.hash"),
+			RuntimeStatePath:          filepath.Join(options.ProjectRoot, "state", "runtime.json"),
+			RuntimeConfigPath:         filepath.Join(options.ProjectRoot, "config", "sing-box.json"),
+			SingBoxBinaryPath:         filepath.Join(options.ProjectRoot, "bin", "sing-box"),
 			RuntimeTemporaryDirectory: filepath.Join(options.ProjectRoot, "tmp"),
-			Entropy:          options.Entropy,
+			Entropy:                   options.Entropy,
 		})
 	}
 	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url]")
