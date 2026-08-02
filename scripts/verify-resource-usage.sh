@@ -53,19 +53,24 @@ resource_process_rss() {
 
 resource_find_sing_box_pid() {
   local panel_pid="${1:-}"
-  local children_file="/proc/${panel_pid}/task/${panel_pid}/children"
+  local proc_root="${S12RYT_RESOURCE_PROC_ROOT:-/proc}"
+  local children_file
   local children=""
   local child
   local executable
 
-  [[ -r "$children_file" ]] || return 1
-  children="$(<"$children_file")"
-  for child in $children; do
-    executable="$(readlink -f "/proc/${child}/exe" 2>/dev/null || true)"
-    if [[ "${executable##*/}" == "sing-box" ]]; then
-      printf '%s\n' "$child"
-      return 0
-    fi
+  [[ "$panel_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  for children_file in "${proc_root}/${panel_pid}/task/"*/children; do
+    [[ -r "$children_file" ]] || continue
+    children="$(<"$children_file")"
+    for child in $children; do
+      [[ "$child" =~ ^[1-9][0-9]*$ ]] || continue
+      executable="$(readlink -f "${proc_root}/${child}/exe" 2>/dev/null || true)"
+      if [[ "${executable##*/}" == "sing-box" ]]; then
+        printf '%s\n' "$child"
+        return 0
+      fi
+    done
   done
   return 1
 }
