@@ -82,6 +82,39 @@ test('五工作區支援 hash、瀏覽器歷史與響應式導覽', async ({ pag
   }
 });
 
+test('鍵盤可跳至主內容且 modal 會鎖定並返回焦點', async ({ page }) => {
+  await login(page);
+
+  await page.keyboard.press('Tab');
+  const skipLink = page.getByRole('link', { name: '跳到主要內容' });
+  await expect(skipLink).toBeFocused();
+  const focusRing = await skipLink.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { style: style.outlineStyle, width: Number.parseFloat(style.outlineWidth) };
+  });
+  expect(focusRing.style).not.toBe('none');
+  expect(focusRing.width).toBeGreaterThan(0);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#main-content')).toBeFocused();
+
+  const trigger = page.getByRole('button', { name: '出口模式' });
+  await trigger.focus();
+  await trigger.click();
+  const modal = page.locator('[data-modal="routing"]');
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole('radio').first()).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect.poll(() => modal.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await modal.getByRole('button', { name: '取消' }).click();
+  await expect(modal).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test('缺少 CSRF 的狀態變更會被拒絕', async ({ page }) => {
   await login(page);
   const status = await page.evaluate(async () => {

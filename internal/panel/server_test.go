@@ -95,7 +95,7 @@ func TestLoginPageUsesDarkNOCTheme(t *testing.T) {
 		t.Fatalf("login status = %d, want 200", response.Code)
 	}
 	body := response.Body.String()
-	for _, expected := range []string{`data-ui-theme="noc"`, `color-scheme:dark`} {
+	for _, expected := range []string{`data-ui-theme="noc"`, `color-scheme:dark`, `:focus-visible`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("login page missing dark theme marker %q", expected)
 		}
@@ -275,6 +275,35 @@ func TestDashboardProvidesDarkFiveWorkspaceNavigation(t *testing.T) {
 	}
 	if strings.Count(body, `role="tabpanel"`) != 5 {
 		t.Fatalf("workspace panel count = %d, want 5", strings.Count(body, `role="tabpanel"`))
+	}
+}
+
+func TestDashboardProvidesKeyboardAndModalFocusContract(t *testing.T) {
+	server := newTestServer(t)
+	cookie, _ := authenticatedSession(t, server, "198.51.100.8")
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	request.AddCookie(cookie)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("dashboard status = %d, want 200", response.Code)
+	}
+	body := response.Body.String()
+
+	for _, expected := range []string{
+		`class="skip-link" href="#main-content"`,
+		`id="main-content" tabindex="-1"`,
+		`:focus-visible`,
+		`function openModal(`,
+		`function trapModalFocus(`,
+		`previouslyFocusedElement`,
+		`focusableModalControls`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("dashboard missing keyboard accessibility marker %q", expected)
+		}
 	}
 }
 
