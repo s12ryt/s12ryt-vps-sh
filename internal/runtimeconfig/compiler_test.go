@@ -121,6 +121,9 @@ func TestCompileServerConfigBuildsRotatingSelectorsWithoutInterruptingExistingCo
 		t.Fatalf("generated JSON is invalid: %v", err)
 	}
 	outbounds := decoded["outbounds"].([]any)
+	if len(outbounds) != 3 {
+		t.Fatalf("outbound count = %d, want two IPv6 direct outbounds and one selector", len(outbounds))
+	}
 	selector := outbounds[2].(map[string]any)
 	if selector["type"] != "selector" || selector["tag"] != "rotate-rotating" || selector["interrupt_exist_connections"] != false {
 		t.Fatalf("rotation selector = %#v", selector)
