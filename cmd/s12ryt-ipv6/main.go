@@ -125,7 +125,8 @@ func initializeProject(options initializationOptions) (initializationResult, err
 
 	configPath := filepath.Join(options.ProjectRoot, "config", "config.json")
 	passwordHashPath := filepath.Join(options.ProjectRoot, "secrets", "password.hash")
-	for _, path := range []string{configPath, passwordHashPath} {
+	plainPasswordPath := filepath.Join(options.ProjectRoot, "secrets", "management.password")
+	for _, path := range []string{configPath, passwordHashPath, plainPasswordPath} {
 		if _, err := os.Lstat(path); err == nil {
 			return initializationResult{}, fmt.Errorf("初始化狀態已存在：%s", path)
 		} else if !os.IsNotExist(err) {
@@ -153,10 +154,25 @@ func initializeProject(options initializationOptions) (initializationResult, err
 		}
 		return initializationResult{}, fmt.Errorf("建立管理密碼雜湊：%w", err)
 	}
+	if err := writeProtectedSecret(plainPasswordPath, secrets.Password, ".management-password.*"); err != nil {
+		cleanupErr := errors.Join(
+			removeInitializationFile(passwordHashPath),
+			removeInitializationFile(configPath),
+			removeInitializationFile(configPath+".bak"),
+		)
+		if cleanupErr != nil {
+			return initializationResult{}, errors.Join(fmt.Errorf("保存管理密碼：%w", err), fmt.Errorf("清理未完成設定：%w", cleanupErr))
+		}
+		return initializationResult{}, fmt.Errorf("保存管理密碼：%w", err)
+	}
 	return initializationResult{Password: secrets.Password, WebPath: secrets.WebPath, Port: config.Panel.Port}, nil
 }
 
 func writeProtectedPasswordHash(path string, passwordHash string) error {
+	return writeProtectedSecret(path, passwordHash, ".password-hash.*")
+}
+
+func writeProtectedSecret(path string, value string, temporaryPattern string) error {
 	directory := filepath.Dir(path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("建立機密目錄：%w", err)
@@ -164,29 +180,29 @@ func writeProtectedPasswordHash(path string, passwordHash string) error {
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return fmt.Errorf("保護機密目錄：%w", err)
 	}
-	temporary, err := os.CreateTemp(directory, ".password-hash.*")
+	temporary, err := os.CreateTemp(directory, temporaryPattern)
 	if err != nil {
-		return fmt.Errorf("建立密碼雜湊暫存檔：%w", err)
+		return fmt.Errorf("建立機密暫存檔：%w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
-		return fmt.Errorf("保護密碼雜湊暫存檔：%w", err)
+		return fmt.Errorf("保護機密暫存檔：%w", err)
 	}
-	if _, err := io.WriteString(temporary, passwordHash+"\n"); err != nil {
+	if _, err := io.WriteString(temporary, value+"\n"); err != nil {
 		temporary.Close()
-		return fmt.Errorf("寫入密碼雜湊暫存檔：%w", err)
+		return fmt.Errorf("寫入機密暫存檔：%w", err)
 	}
 	if err := temporary.Sync(); err != nil {
 		temporary.Close()
-		return fmt.Errorf("同步密碼雜湊暫存檔：%w", err)
+		return fmt.Errorf("同步機密暫存檔：%w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("關閉密碼雜湊暫存檔：%w", err)
+		return fmt.Errorf("關閉機密暫存檔：%w", err)
 	}
 	if err := os.Link(temporaryPath, path); err != nil {
-		return fmt.Errorf("安裝密碼雜湊：%w", err)
+		return fmt.Errorf("安裝機密檔案：%w", err)
 	}
 	if err := syncRuntimeDirectory(directory); err != nil {
 		os.Remove(path)
