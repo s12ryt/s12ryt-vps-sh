@@ -19,12 +19,14 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeprocess"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
+	projectsystem "github.com/s12ryt/s12ryt-vps-sh/internal/system"
 )
 
 const defaultConfigPath = "/opt/s12ryt-ipv6/config/config.json"
@@ -36,6 +38,7 @@ const defaultRuntimeTemporaryDirectory = "/opt/s12ryt-ipv6/tmp"
 const defaultProjectRoot = "/opt/s12ryt-ipv6"
 const shutdownTimeout = 10 * time.Second
 const validationTimeout = 15 * time.Second
+const systemCommandTimeout = 30 * time.Second
 
 type managedHTTPServer interface {
 	Serve(net.Listener) error
@@ -47,6 +50,10 @@ type managedRuntime interface {
 	Reload(context.Context) error
 	Healthy(context.Context) error
 	Stop(context.Context) error
+}
+
+type integrationCleaner interface {
+	Remove(context.Context) error
 }
 
 type runtimeOptions struct {
@@ -85,11 +92,12 @@ type initializationResult struct {
 }
 
 type commandOptions struct {
-	ProjectRoot string
-	Entropy     io.Reader
-	Output      io.Writer
-	Context     context.Context
-	Addresses   func() ([]netip.Addr, error)
+	ProjectRoot        string
+	Entropy            io.Reader
+	Output             io.Writer
+	Context            context.Context
+	Addresses          func() ([]netip.Addr, error)
+	IntegrationCleaner integrationCleaner
 }
 
 func main() {
@@ -139,6 +147,21 @@ func runCommand(arguments []string, options commandOptions) error {
 	if len(arguments) == 1 && arguments[0] == "health-url" {
 		return printHealthURL(options.ProjectRoot, options.Output)
 	}
+	if len(arguments) == 1 && arguments[0] == "cleanup-system" {
+		cleaner := options.IntegrationCleaner
+		if cleaner == nil {
+			var err error
+			cleaner, err = newIntegrationCleaner(options.ProjectRoot, options.Output)
+			if err != nil {
+				return err
+			}
+		}
+		if err := cleaner.Remove(options.Context); err != nil {
+			return fmt.Errorf("清理專案網路整合狀態：%w", err)
+		}
+		fmt.Fprintln(options.Output, "專案網路整合狀態已清理。")
+		return nil
+	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
 		return runApplication(options.Context, runtimeOptions{
 			ConfigPath:                filepath.Join(options.ProjectRoot, "config", "config.json"),
@@ -150,7 +173,26 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:                   options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|cleanup-system]")
+}
+
+func newIntegrationCleaner(projectRoot string, output io.Writer) (integrationCleaner, error) {
+	repository, err := manifest.NewStore(filepath.Join(projectRoot, "state", "integration.json"))
+	if err != nil {
+		return nil, fmt.Errorf("建立系統整合狀態儲存：%w", err)
+	}
+	runner, err := projectsystem.NewExecRunner(projectsystem.ExecRunnerOptions{
+		Timeout: systemCommandTimeout,
+		Output:  output,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立系統命令執行器：%w", err)
+	}
+	cleaner, err := manifest.NewIntegrationManager(repository, runner)
+	if err != nil {
+		return nil, fmt.Errorf("建立系統整合管理器：%w", err)
+	}
+	return cleaner, nil
 }
 
 func printHealthURL(projectRoot string, output io.Writer) error {
