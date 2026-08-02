@@ -611,6 +611,49 @@ func TestLoadApplicationWiresNetworkIntegrationAPI(t *testing.T) {
 	}
 }
 
+func TestLoadApplicationWiresACMEHTTPPortPreflight(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	checker := &stubACMEChallengeChecker{available: true}
+	application, err := loadApplication(runtimeOptions{
+		ConfigPath:              paths.config,
+		PasswordHashPath:        paths.passwordHash,
+		RuntimeStatePath:        paths.runtimeState,
+		RuntimeConfigPath:       paths.runtimeConfig,
+		Entropy:                 bytes.NewReader(bytes.Repeat([]byte{0x6d}, 512)),
+		Clock:                   func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Runtime:                 &stubRuntime{},
+		ValidateRuntime:         func([]byte) error { return nil },
+		ACMEChallengeChecker:    checker,
+	})
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+
+	cookie := runtimeLogin(t, application.handler)
+	dashboard := httptest.NewRecorder()
+	dashboardRequest := httptest.NewRequest(http.MethodGet, "/configureme1", nil)
+	dashboardRequest.RemoteAddr = "198.51.100.20:43210"
+	dashboardRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(dashboard, dashboardRequest)
+	csrfMatch := regexp.MustCompile(`name="csrf-token" content="([^"]+)"`).FindStringSubmatch(dashboard.Body.String())
+	if dashboard.Code != http.StatusOK || len(csrfMatch) != 2 {
+		t.Fatalf("dashboard response = %d, csrf match = %#v", dashboard.Code, csrfMatch)
+	}
+
+	payload := []byte(`{"id":"acme-edge","protocol":"vless","port":25555,"enabled":true,"deployment":{"listeners":["2001:db8::20"],"tls":{"enabled":true,"server_name":"node.example.com","acme":{"domains":["node.example.com"],"data_directory":"/opt/s12ryt-ipv6/tls/acme","default_server_name":"node.example.com","email":"admin@example.com","provider":"letsencrypt"}},"transport":{}}}`)
+	created := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/configureme1/api/nodes", bytes.NewReader(payload))
+	createRequest.RemoteAddr = "198.51.100.20:43210"
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.Header.Set("X-CSRF-Token", csrfMatch[1])
+	createRequest.Header.Set("X-S12ryt-Confirm", "apply")
+	createRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(created, createRequest)
+	if created.Code != http.StatusCreated || checker.calls != 1 {
+		t.Fatalf("ACME create response = %d %q, checker calls = %d", created.Code, created.Body.String(), checker.calls)
+	}
+}
+
 func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	listener := &stubListener{}
@@ -759,6 +802,17 @@ var _ projectnetwork.PortAvailabilityChecker = (*runtimePortChecker)(nil)
 
 type stubNetworkManager struct {
 	addresses []projectnetwork.InterfaceAddress
+}
+
+type stubACMEChallengeChecker struct {
+	available bool
+	err       error
+	calls     int
+}
+
+func (checker *stubACMEChallengeChecker) Available(context.Context) (bool, error) {
+	checker.calls++
+	return checker.available, checker.err
 }
 
 func (manager *stubNetworkManager) GlobalIPv6Addresses(context.Context) ([]projectnetwork.InterfaceAddress, error) {
