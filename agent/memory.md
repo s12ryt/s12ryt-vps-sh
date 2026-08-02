@@ -82,3 +82,5 @@
 - 凍結代理契約：七種本機 inbound、VLESS Reality/WS/gRPC、TLS自簽/ACME/外部cert、IPv4/IPv6/雙入站同埠、URI/JSON/QR/Base64；遠端 URI/JSON/Base64 訂閱、SOCKS/HTTP IPv4出口、三種模式、四種拓撲及共用 direct IPv6/遠端代理輪換池。
 - 健康檢查預設每30秒請求可配置HTTPS URL，連續3次失敗切換、首選連續3次成功切回，只影響新連線。資源驗收為64 IPv6、28節點、無流量穩定60秒時面板+sing-box idle RSS不超過100 MiB。
 - Web/Go/Playwright、Go test/vet、Bats、ShellCheck、Bash語法、資源基準與cross-build全部只在GitHub-hosted Actions；不在本機執行Go/Bash測試，不宣稱真實VPS或arm64實機已驗證。
+- 建立嚴格設定 validate/apply/get API 契約；run `30724420110` 精確因 `ConfigStore` 與 server store 尚不存在而 RED，完成 1 MiB 限制、未知欄位拒絕、domain 驗證、明確 apply 確認及持久化後，run `30724503372` 通過 Go format/test/vet、既有 Bash 與 10 發行版 smoke。
+- 建立單一 session 撤銷、CSRF 登出、cookie 清除與全回應安全標頭契約；首輪 run `30724625550` 僅暴露測試 gofmt 差異，修正後 run `30724685770` 因 `Revoke`、安全標頭及 logout 尚不存在而有效 RED。完成實作並修正 deterministic fixture 產生重複 token 的隔離問題後，run `30724842014` 全綠。

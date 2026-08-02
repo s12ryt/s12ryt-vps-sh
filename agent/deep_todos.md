@@ -50,7 +50,7 @@
 
 - [x] 讀取 `he-ipv6.md`，查核 sing-box 協議、路由、Release 與授權邊界。
 - [x] 完成多輪需求澄清，凍結 CLI、Web、安全、IPv6、協議、拓撲、更新及驗收契約。
-- [ ] TDD：Go 原子狀態、認證/session/CSRF、HTTP API 與嵌入式 Web UI。
+- [ ] TDD：Go 原子狀態、認證/session/CSRF、HTTP API 與嵌入式 Web UI（設定 API GREEN run `30724503372`；登出/安全標頭 RED run `30724685770`、GREEN run `30724842014`）。
 - [ ] TDD：sing-box 設定生成、七種 inbound、遠端 outbound 匯入、分享與訂閱輸出。
 - [ ] TDD：三種出口模式、四種拓撲、輪換池、健康檢查與自動 fallback。
 - [ ] TDD：IPv6 池、policy route、防火牆、systemd/OpenRC、日誌與原子回滾。
