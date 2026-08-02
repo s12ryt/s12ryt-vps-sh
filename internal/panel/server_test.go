@@ -94,11 +94,11 @@ func TestResponsesSetSecurityAndNoStoreHeaders(t *testing.T) {
 		server.Handler().ServeHTTP(response, request)
 
 		for name, expected := range map[string]string{
-			"Cache-Control":         "no-store",
+			"Cache-Control":           "no-store",
 			"Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-			"Referrer-Policy":       "no-referrer",
-			"X-Content-Type-Options": "nosniff",
-			"X-Frame-Options":       "DENY",
+			"Referrer-Policy":         "no-referrer",
+			"X-Content-Type-Options":  "nosniff",
+			"X-Frame-Options":         "DENY",
 		} {
 			if actual := response.Header().Get(name); actual != expected {
 				t.Fatalf("%s %s = %q, want %q", path, name, actual, expected)
