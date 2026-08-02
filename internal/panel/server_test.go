@@ -326,6 +326,28 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 		`data-network-result`,
 		`address_count`,
 		`firewall_backend`,
+		`data-share-reveal-endpoint="/abcdefghijkl/api/shares/reveal"`,
+		`data-share-qr-endpoint-template="/abcdefghijkl/api/shares/{id}/qr"`,
+		`data-share-workspace`,
+		`data-share-open`,
+		`data-share-form`,
+		`name="share_management_password"`,
+		`autocomplete="current-password"`,
+		`data-share-nodes`,
+		`data-share-uri`,
+		`data-share-client-json`,
+		`data-share-full-client-json`,
+		`data-share-full-client-base64`,
+		`data-share-warning`,
+		`data-share-qr`,
+		`data-share-subscription`,
+		`data-share-expiry`,
+		`data-share-copy`,
+		`expires_in_seconds`,
+		`full_client_json`,
+		`full_client_base64`,
+		`qr_url`,
+		`clearShareSecrets`,
 		`X-CSRF-Token`,
 		`X-S12ryt-Confirm`,
 	} {
@@ -333,11 +355,16 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 			t.Fatalf("dashboard missing configuration marker %q", expected)
 		}
 	}
-	if strings.Count(body, `data-modal-backdrop="static"`) != 7 {
-		t.Fatalf("static modal count = %d, want 7", strings.Count(body, `data-modal-backdrop="static"`))
+	if strings.Count(body, `data-modal-backdrop="static"`) != 8 {
+		t.Fatalf("static modal count = %d, want 8", strings.Count(body, `data-modal-backdrop="static"`))
 	}
 	if strings.Contains(body, "innerHTML") {
 		t.Fatal("dashboard remote UI must not render API data through innerHTML")
+	}
+	for _, secret := range []string{"vless://", "$pbkdf2-sha256$"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("dashboard rendered protected share material %q before reveal", secret)
+		}
 	}
 }
 
