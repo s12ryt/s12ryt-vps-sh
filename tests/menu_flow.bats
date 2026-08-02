@@ -109,7 +109,7 @@ EOF
     ' _ "${PROJECT_ROOT}/s12ryt.sh"
 
     [ "$status" -eq 0 ]
-    [ "$output" = $'-----\ns12ryt 的 VPS 腳本\n版本: v1.1.0\nCopyright (C) 2026 s12ryt\n授權: GPL-3.0-only；本程式不提供任何擔保，詳見 LICENSE。\n-----\n1. 系統資訊\n2. 更新系統\n3. IP 資訊\n4. 自動 PRoot（腳本）\n5. 自動 PRoot（安裝虛擬機）\n6. 自動偽造 systemd\n7. 自動安裝 Joey 的 fanout\n8. s12ryt 項目列表\n9. 安裝 Python\n10. 安裝 Node.js\n-----\n11. 檢查更新\n-----\n0. 退出\n-----' ]
+    [ "$output" = $'-----\ns12ryt 的 VPS 腳本\n版本: v1.1.1\nCopyright (C) 2026 s12ryt\n授權: GPL-3.0-only；本程式不提供任何擔保，詳見 LICENSE。\n-----\n1. 系統資訊\n2. 更新系統\n3. IP 資訊\n4. 自動 PRoot（腳本）\n5. 自動 PRoot（安裝虛擬機）\n6. 自動偽造 systemd\n7. 自動安裝 Joey 的 fanout\n8. s12ryt 項目列表\n9. 安裝 Python\n10. 安裝 Node.js\n-----\n11. 檢查更新\n-----\n0. 退出\n-----' ]
 }
 
 @test "腳本不得清除 Bash 指令歷史" {
