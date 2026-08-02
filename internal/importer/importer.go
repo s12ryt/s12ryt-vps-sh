@@ -194,7 +194,7 @@ func parseVMessLink(link string) (Outbound, error) {
 	case "ws":
 		path, _ := raw["path"].(string)
 		if path == "" {
-			return Outbound{}, errors.New("VMess WebSocket path is required")
+			path = "/"
 		}
 		canonical["transport"] = map[string]any{"type": "ws", "path": path}
 	case "grpc":
@@ -295,7 +295,7 @@ func applyURITransport(raw map[string]any, query url.Values) error {
 	case "ws", "websocket":
 		path := query.Get("path")
 		if path == "" {
-			return errors.New("WebSocket path is required")
+			path = "/"
 		}
 		raw["transport"] = map[string]any{"type": "ws", "path": path}
 		return nil
