@@ -80,6 +80,27 @@ func TestSessionManagerRevokeAllInvalidatesExistingSessions(t *testing.T) {
 	}
 }
 
+func TestSessionManagerRevokeInvalidatesOnlyNamedSession(t *testing.T) {
+	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	manager := NewSessionManager(bytes.NewReader(bytes.Repeat([]byte{0x26}, 512)), func() time.Time { return now })
+	first, err := manager.Create("198.51.100.8")
+	if err != nil {
+		t.Fatalf("Create(first) error = %v", err)
+	}
+	second, err := manager.Create("203.0.113.9")
+	if err != nil {
+		t.Fatalf("Create(second) error = %v", err)
+	}
+
+	manager.Revoke(first.Token)
+	if manager.Validate(first.Token, first.CSRFToken, first.ClientIP) {
+		t.Fatal("Validate() accepted the revoked session")
+	}
+	if !manager.Validate(second.Token, second.CSRFToken, second.ClientIP) {
+		t.Fatal("Revoke() invalidated an unrelated session")
+	}
+}
+
 func TestLoginLimiterLocksOneIPAfterFiveFailuresFor15Minutes(t *testing.T) {
 	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
 	limiter := NewLoginLimiter(func() time.Time { return now })

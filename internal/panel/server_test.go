@@ -84,6 +84,57 @@ func TestSuccessfulLoginSetsSessionCookieWithRequiredAttributes(t *testing.T) {
 	}
 }
 
+func TestResponsesSetSecurityAndNoStoreHeaders(t *testing.T) {
+	server := newTestServer(t)
+
+	for _, path := range []string{"/abcdefghijkl", "/abcdefghijkl/missing"} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "http://panel.test"+path, nil)
+		request.RemoteAddr = "198.51.100.8:41234"
+		server.Handler().ServeHTTP(response, request)
+
+		for name, expected := range map[string]string{
+			"Cache-Control":         "no-store",
+			"Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+			"Referrer-Policy":       "no-referrer",
+			"X-Content-Type-Options": "nosniff",
+			"X-Frame-Options":       "DENY",
+		} {
+			if actual := response.Header().Get(name); actual != expected {
+				t.Fatalf("%s %s = %q, want %q", path, name, actual, expected)
+			}
+		}
+	}
+}
+
+func TestLogoutRequiresCSRFRevokesSessionAndClearsCookie(t *testing.T) {
+	server := newTestServer(t)
+	cookie, csrfToken := authenticatedSession(t, server, "198.51.100.8")
+
+	missingCSRF := performConfigRequest(t, server, http.MethodPost, "/logout", cookie, "", "", nil)
+	if missingCSRF.Code != http.StatusForbidden {
+		t.Fatalf("missing CSRF status = %d, want 403", missingCSRF.Code)
+	}
+
+	response := performConfigRequest(t, server, http.MethodPost, "/logout", cookie, csrfToken, "", nil)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("logout status = %d, want 303", response.Code)
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != SessionCookieName || cookies[0].MaxAge >= 0 {
+		t.Fatalf("logout cookie = %#v", cookies)
+	}
+
+	dashboard := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	request.AddCookie(cookie)
+	server.Handler().ServeHTTP(dashboard, request)
+	if !strings.Contains(dashboard.Body.String(), "登入 IPv6 管理面板") {
+		t.Fatal("revoked session still reached the dashboard")
+	}
+}
+
 func TestLoginLocksSameIPAfterFiveFailures(t *testing.T) {
 	server := newTestServer(t)
 	for attempt := 1; attempt <= 5; attempt++ {
