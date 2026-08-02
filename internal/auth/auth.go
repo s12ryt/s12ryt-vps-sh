@@ -154,6 +154,12 @@ func (manager *SessionManager) RevokeAll() {
 	manager.mutex.Unlock()
 }
 
+func (manager *SessionManager) Revoke(token string) {
+	manager.mutex.Lock()
+	delete(manager.sessions, token)
+	manager.mutex.Unlock()
+}
+
 func (manager *SessionManager) randomToken() (string, error) {
 	value := make([]byte, sessionTokenLength)
 	if _, err := io.ReadFull(manager.reader, value); err != nil {
