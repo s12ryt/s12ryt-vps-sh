@@ -227,13 +227,31 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 		`X-S12ryt-Confirm`,
 		`data-config-diff`,
 		`data-config-error`,
+		`data-nodes-endpoint="/abcdefghijkl/api/nodes"`,
+		`data-credential-endpoint-template="/abcdefghijkl/api/nodes/{id}/credential"`,
+		`data-node-table`,
+		`data-node-form`,
+		`name="node_id"`,
+		`name="node_protocol"`,
+		`name="node_port"`,
+		`name="node_enabled"`,
+		`data-node-create`,
+		`data-node-edit`,
+		`data-node-delete`,
+		`data-credential-form`,
+		`name="management_password"`,
+		`autocomplete="current-password"`,
+		`data-credential-reveal`,
+		`data-credential-value hidden`,
+		`data-credential-expiry`,
+		`expires_in_seconds`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("dashboard missing configuration marker %q", expected)
 		}
 	}
-	if strings.Count(body, `data-modal-backdrop="static"`) != 3 {
-		t.Fatalf("static modal count = %d, want 3", strings.Count(body, `data-modal-backdrop="static"`))
+	if strings.Count(body, `data-modal-backdrop="static"`) != 5 {
+		t.Fatalf("static modal count = %d, want 5", strings.Count(body, `data-modal-backdrop="static"`))
 	}
 }
 
