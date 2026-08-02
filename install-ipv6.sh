@@ -329,7 +329,7 @@ install_verified_ipv6_bundle() {
     archive_source="${bundle}/${singbox_asset}"
     archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
 
-    if [[ ! -f "$panel_source" || ! -x "$panel_source" || ! -f "$archive_source" ]]; then
+    if [[ ! -f "$panel_source" || ! -f "$archive_source" ]]; then
         printf '錯誤：已驗證的 IPv6 專案資產不完整。\n' >&2
         return 1
     fi
