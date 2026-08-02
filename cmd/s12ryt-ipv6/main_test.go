@@ -3,18 +3,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
 
@@ -53,6 +57,54 @@ func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("loadApplication accepted a group/world-readable password hash")
+	}
+}
+
+func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	checker := &runtimePortChecker{}
+	application, err := loadApplication(runtimeOptions{
+		ConfigPath:             paths.config,
+		PasswordHashPath:       paths.passwordHash,
+		Entropy:                bytes.NewReader(bytes.Repeat([]byte{0x31}, 512)),
+		Clock:                  func() time.Time { return time.Unix(1_800_000_000, 0) },
+		PortChecker:            checker,
+		PortAllocationAttempts: 4,
+	})
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+
+	cookie := runtimeLogin(t, application.handler)
+	dashboard := httptest.NewRecorder()
+	dashboardRequest := httptest.NewRequest(http.MethodGet, "/configureme1", nil)
+	dashboardRequest.RemoteAddr = "198.51.100.20:43210"
+	dashboardRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(dashboard, dashboardRequest)
+	csrfMatch := regexp.MustCompile(`name="csrf-token" content="([^"]+)"`).FindStringSubmatch(dashboard.Body.String())
+	if dashboard.Code != http.StatusOK || len(csrfMatch) != 2 {
+		t.Fatalf("dashboard response = %d, csrf match = %#v", dashboard.Code, csrfMatch)
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"id": "runtime-vless", "protocol": "vless", "port": 0, "enabled": true,
+	})
+	created := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/configureme1/api/nodes", bytes.NewReader(payload))
+	createRequest.RemoteAddr = "198.51.100.20:43210"
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.Header.Set("X-CSRF-Token", csrfMatch[1])
+	createRequest.Header.Set("X-S12ryt-Confirm", "apply")
+	createRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(created, createRequest)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("node create status = %d, body = %s", created.Code, created.Body.String())
+	}
+	if len(checker.checks) != 2 || checker.checks[0].network != "tcp" || checker.checks[1].network != "udp" || checker.checks[0].port != checker.checks[1].port {
+		t.Fatalf("port checks = %#v, want matching TCP then UDP checks", checker.checks)
+	}
+	if checker.checks[0].port < 20000 || checker.checks[0].port > 49999 {
+		t.Fatalf("allocated port = %d, want 20000-49999", checker.checks[0].port)
 	}
 }
 
@@ -127,6 +179,37 @@ func writeRuntimeFiles(t *testing.T, passwordMode os.FileMode) runtimePaths {
 	}
 	return runtimePaths{config: configPath, passwordHash: passwordPath}
 }
+
+func runtimeLogin(t *testing.T, handler http.Handler) *http.Cookie {
+	t.Helper()
+	login := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/configureme1/login", bytes.NewBufferString(url.Values{
+		"password": {"correct horse battery staple"},
+	}.Encode()))
+	request.RemoteAddr = "198.51.100.20:43210"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.ServeHTTP(login, request)
+	if login.Code != http.StatusSeeOther || len(login.Result().Cookies()) != 1 {
+		t.Fatalf("login response = %d, cookies = %#v", login.Code, login.Result().Cookies())
+	}
+	return login.Result().Cookies()[0]
+}
+
+type runtimePortCheck struct {
+	network string
+	port    int
+}
+
+type runtimePortChecker struct {
+	checks []runtimePortCheck
+}
+
+func (checker *runtimePortChecker) Available(network string, port int) (bool, error) {
+	checker.checks = append(checker.checks, runtimePortCheck{network: network, port: port})
+	return true, nil
+}
+
+var _ projectnetwork.PortAvailabilityChecker = (*runtimePortChecker)(nil)
 
 type stubListener struct{}
 
