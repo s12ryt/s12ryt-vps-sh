@@ -62,6 +62,17 @@ func NewCoordinator(options CoordinatorOptions) (*Coordinator, error) {
 	}, nil
 }
 
+func (coordinator *Coordinator) GlobalIPv6Addresses(ctx context.Context) ([]projectnetwork.InterfaceAddress, error) {
+	if ctx == nil {
+		return nil, errors.New("network discovery context is required")
+	}
+	addresses, err := coordinator.discovery.GlobalIPv6Addresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("discover global IPv6 addresses: %w", err)
+	}
+	return append([]projectnetwork.InterfaceAddress(nil), addresses...), nil
+}
+
 func (coordinator *Coordinator) Apply(ctx context.Context, request Request) (manifest.Manifest, error) {
 	if ctx == nil {
 		return manifest.Manifest{}, errors.New("network setup context is required")
