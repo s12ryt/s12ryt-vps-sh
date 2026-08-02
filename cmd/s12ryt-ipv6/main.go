@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/certificates"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
@@ -68,6 +69,7 @@ type runtimeOptions struct {
 	Clock                     func() time.Time
 	PortChecker               projectnetwork.PortAvailabilityChecker
 	PortAllocationAttempts    int
+	ACMEChallengeChecker      panel.ACMEChallengeChecker
 	Listen                    func(string, string) (net.Listener, error)
 	NewHTTPServer             func(string, http.Handler) managedHTTPServer
 	Runtime                   managedRuntime
@@ -556,6 +558,7 @@ func loadApplication(options runtimeOptions) (application, error) {
 		NodeManager:    nodeManager,
 		RemoteManager:  nodeManager,
 		NetworkManager: networkManager,
+		ACMEChallengeChecker: options.ACMEChallengeChecker,
 	})
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
@@ -726,6 +729,9 @@ func withRuntimeDefaults(options runtimeOptions) runtimeOptions {
 	}
 	if options.PortAllocationAttempts == 0 {
 		options.PortAllocationAttempts = 128
+	}
+	if options.ACMEChallengeChecker == nil {
+		options.ACMEChallengeChecker = certificates.NewSystemHTTP01PortChecker()
 	}
 	if options.Listen == nil {
 		options.Listen = net.Listen
