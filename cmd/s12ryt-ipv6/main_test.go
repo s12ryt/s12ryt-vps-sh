@@ -524,14 +524,14 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 
 	go func() {
 		done <- runApplication(ctx, runtimeOptions{
-			ConfigPath:       paths.config,
-			PasswordHashPath: paths.passwordHash,
-			RuntimeStatePath: paths.runtimeState,
+			ConfigPath:        paths.config,
+			PasswordHashPath:  paths.passwordHash,
+			RuntimeStatePath:  paths.runtimeState,
 			RuntimeConfigPath: paths.runtimeConfig,
-			Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
-			Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
-			Runtime:          runtime,
-			ValidateRuntime:  func([]byte) error { return nil },
+			Entropy:           bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
+			Clock:             func() time.Time { return time.Unix(1_800_000_000, 0) },
+			Runtime:           runtime,
+			ValidateRuntime:   func([]byte) error { return nil },
 			Listen: func(gotNetwork string, gotAddress string) (net.Listener, error) {
 				network, address = gotNetwork, gotAddress
 				return listener, nil
