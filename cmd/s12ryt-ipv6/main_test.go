@@ -676,7 +676,7 @@ func TestRunSetEndpointCommandAcceptsWildcardIPv6AndRejectsUnsafeInputs(t *testi
 		"init system": {"set-endpoint", "34456", "/configureme1", "-", "unknown"},
 	}
 	for name, arguments := range tests {
-			t.Run(name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			before := updater.calls
 			if err := runCommand(arguments, commandOptions{
 				ProjectRoot:     projectRoot,
