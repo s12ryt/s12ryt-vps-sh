@@ -105,7 +105,7 @@ func TestCoordinatorPreservesDiscoveryEntropyAndApplyErrors(t *testing.T) {
 	entropyErr := errors.New("entropy failed")
 	applyErr := errors.New("apply failed")
 
-	for name, options, want := range map[string]struct {
+	for name, testCase := range map[string]struct {
 		options CoordinatorOptions
 		want    error
 	}{
@@ -143,12 +143,12 @@ func TestCoordinatorPreservesDiscoveryEntropyAndApplyErrors(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			coordinator, err := NewCoordinator(options)
+			coordinator, err := NewCoordinator(testCase.options)
 			if err != nil {
 				t.Fatalf("NewCoordinator() error = %v", err)
 			}
-			if _, err := coordinator.Apply(context.Background(), validRequest()); !errors.Is(err, want) {
-				t.Fatalf("Apply() error = %v, want errors.Is(%v)", err, want)
+			if _, err := coordinator.Apply(context.Background(), validRequest()); !errors.Is(err, testCase.want) {
+				t.Fatalf("Apply() error = %v, want errors.Is(%v)", err, testCase.want)
 			}
 		})
 	}
