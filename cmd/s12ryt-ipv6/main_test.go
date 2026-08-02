@@ -30,6 +30,7 @@ func TestLoadApplicationBuildsPanelFromProtectedFiles(t *testing.T) {
 	application, err := loadApplication(runtimeOptions{
 		ConfigPath:       paths.config,
 		PasswordHashPath: paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
 		Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x31}, 128)),
 		Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
 	})
@@ -346,9 +347,37 @@ func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	_, err := loadApplication(runtimeOptions{
 		ConfigPath:       paths.config,
 		PasswordHashPath: paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
 	})
 	if err == nil {
 		t.Fatal("loadApplication accepted a group/world-readable password hash")
+	}
+}
+
+func TestLoadApplicationRejectsMissingEnabledNodeDeployment(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	config := domain.DefaultConfig()
+	config.Nodes = []domain.Node{{
+		ID:       "edge",
+		Protocol: domain.ProtocolVLESS,
+		Port:     24443,
+		Enabled:  true,
+		Credential: domain.NodeCredential{
+			UUID: "123e4567-e89b-42d3-a456-426614174000",
+		},
+	}}
+	if err := store.NewConfigStore(paths.config).Save(config); err != nil {
+		t.Fatalf("Save(config) error = %v", err)
+	}
+
+	_, err := loadApplication(runtimeOptions{
+		ConfigPath:       paths.config,
+		PasswordHashPath: paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
+		Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x41}, 128)),
+	})
+	if err == nil || !strings.Contains(err.Error(), "edge") {
+		t.Fatalf("loadApplication() error = %v, want missing edge deployment rejection", err)
 	}
 }
 
@@ -358,6 +387,7 @@ func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 	application, err := loadApplication(runtimeOptions{
 		ConfigPath:             paths.config,
 		PasswordHashPath:       paths.passwordHash,
+		RuntimeStatePath:        paths.runtimeState,
 		Entropy:                bytes.NewReader(bytes.Repeat([]byte{0x31}, 512)),
 		Clock:                  func() time.Time { return time.Unix(1_800_000_000, 0) },
 		PortChecker:            checker,
@@ -412,6 +442,7 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 		done <- runApplication(ctx, runtimeOptions{
 			ConfigPath:       paths.config,
 			PasswordHashPath: paths.passwordHash,
+			RuntimeStatePath:  paths.runtimeState,
 			Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
 			Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
 			Listen: func(gotNetwork string, gotAddress string) (net.Listener, error) {
@@ -450,6 +481,7 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 type runtimePaths struct {
 	config       string
 	passwordHash string
+	runtimeState string
 }
 
 func writeRuntimeFiles(t *testing.T, passwordMode os.FileMode) runtimePaths {
@@ -469,7 +501,19 @@ func writeRuntimeFiles(t *testing.T, passwordMode os.FileMode) runtimePaths {
 	if err := os.WriteFile(passwordPath, []byte(passwordHash+"\n"), passwordMode); err != nil {
 		t.Fatalf("write password hash: %v", err)
 	}
-	return runtimePaths{config: configPath, passwordHash: passwordPath}
+	runtimeStatePath := filepath.Join(directory, "runtime.json")
+	runtimeStateStore, err := runtimeconfig.NewDeploymentStateStore(runtimeStatePath)
+	if err != nil {
+		t.Fatalf("NewDeploymentStateStore() error = %v", err)
+	}
+	if err := runtimeStateStore.Save(runtimeconfig.DeploymentState{
+		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
+		Nodes:         make([]runtimeconfig.PersistedNodeDeployment, 0),
+		IPv6Outbounds: make([]netip.Addr, 0),
+	}); err != nil {
+		t.Fatalf("Save(runtime state) error = %v", err)
+	}
+	return runtimePaths{config: configPath, passwordHash: passwordPath, runtimeState: runtimeStatePath}
 }
 
 func runtimeLogin(t *testing.T, handler http.Handler) *http.Cookie {
