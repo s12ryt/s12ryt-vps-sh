@@ -56,7 +56,7 @@
 - [x] TDD：IPv6 池、policy route、防火牆、systemd/OpenRC、日誌、manifest 與原子回滾（IPv6 pool `30725007507`/`30725098657`；service `30726187017`/`30726274820`；firewall `30726551004`/`30726716194`；policy route `30727749222`/`30727820377`；命令/部署交易 `30728076838`/`30728159954`、`30731284812`/`30731407857`；manifest Apply/Replace/Restore/Remove 與 boot restore 已納入最終回歸 `30761047569`）。
 - [x] TDD：主選單 8 項目列表及安裝、更新、設定、卸載 CLI（導航 `30732194649`/`30732343845`；資產 staging `30732611880`/`30732705476`；service 安裝 `30732826032`/`30733003749`；更新回滾 `30734652131`/`30734762228`；卸載 `30734828565`/`30735051812`；端點與密碼交易、system manifest 清理及 helper 接線均納入最終回歸 `30761047569`）。
 - [x] 建立 Playwright 桌面/手機驗收、x86_64/arm64 cross-build、SHA256 與資源基準（Playwright GREEN `30758706746`；Release assets GREEN `30759325521`；真實 64 IPv6 + 28 nodes、穩定 60 秒資源 GREEN `30761047569`，合計 RSS `61872 KiB / 102400 KiB`）。
-- [ ] 更新主腳本/README 至 `v1.1.0`，完成完整 GitHub-hosted 回歸與品質審查。
+- [x] 更新主腳本/README 至 `v1.1.0`，完成完整 GitHub-hosted 回歸與品質審查（版本/文件 RED run `30761478600`；首個候選 run `30761947232` 揭露過時自我更新 fixture；最終 GREEN run `30762093464`）。
 - [ ] 建立並驗證 `v1.1.0` Release，保留既有 Releases。
 
 ## 驗收依據
