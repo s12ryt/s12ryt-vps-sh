@@ -232,6 +232,11 @@ func cloneRuntimeState(state runtimeconfig.DeploymentState) runtimeconfig.Deploy
 		state.Nodes[index] = cloneRuntimeNode(state.Nodes[index])
 	}
 	state.IPv6Outbounds = append([]netip.Addr(nil), state.IPv6Outbounds...)
+	state.RemoteOutbounds = append([]runtimeconfig.PersistedRemoteOutbound(nil), state.RemoteOutbounds...)
+	for index := range state.RemoteOutbounds {
+		state.RemoteOutbounds[index].Config = append([]byte(nil), state.RemoteOutbounds[index].Config...)
+	}
+	state.IPv4Fallback = append([]string(nil), state.IPv4Fallback...)
 	return state
 }
 

@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"reflect"
@@ -109,12 +110,42 @@ func TestRuntimeManagedDeleteRemovesDeploymentInSameCommit(t *testing.T) {
 	}
 }
 
+func TestRuntimeManagedMutationPreservesProtectedRemoteOutbounds(t *testing.T) {
+	applier := &recordingDeploymentApplier{}
+	manager := newRuntimeManagedTestManager(t, applier)
+	firstSnapshot := manager.RuntimeSnapshot()
+	if len(firstSnapshot.RemoteOutbounds) != 1 {
+		t.Fatalf("remote outbounds = %#v", firstSnapshot.RemoteOutbounds)
+	}
+	firstSnapshot.RemoteOutbounds[0].Config[0] = 'x'
+	if manager.RuntimeSnapshot().RemoteOutbounds[0].Config[0] == 'x' {
+		t.Fatal("RuntimeSnapshot() exposed mutable remote credential storage")
+	}
+
+	_, err := manager.Create(CreateInput{
+		ID: "preserve-remote", Protocol: domain.ProtocolVLESS, Port: 27777, Enabled: true,
+		Deployment: runtimeconfig.PersistedNodeDeployment{
+			NodeID: "preserve-remote", Listeners: []netip.Addr{netip.MustParseAddr("2001:db8::20")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	call := applier.calls[0]
+	if len(call.currentState.RemoteOutbounds) != 1 || len(call.candidateState.RemoteOutbounds) != 1 {
+		t.Fatalf("remote outbounds were lost across mutation: %#v / %#v", call.currentState, call.candidateState)
+	}
+}
+
 func newRuntimeManagedTestManager(t *testing.T, applier DeploymentApplier) *Manager {
 	t.Helper()
 	state := runtimeconfig.DeploymentState{
 		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
 		Nodes:         []runtimeconfig.PersistedNodeDeployment{},
 		IPv6Outbounds: []netip.Addr{netip.MustParseAddr("2001:db8:ffff::10")},
+		RemoteOutbounds: []runtimeconfig.PersistedRemoteOutbound{{
+			Config: json.RawMessage(`{"type":"vless","tag":"remote-preserved","server":"proxy.example.com","server_port":443,"uuid":"550e8400-e29b-41d4-a716-446655440000"}`),
+		}},
 	}
 	manager, err := NewManager(ManagerOptions{
 		Config:            domain.DefaultConfig(),
@@ -158,5 +189,10 @@ func cloneTestRuntimeState(state runtimeconfig.DeploymentState) runtimeconfig.De
 		state.Nodes[index].Listeners = append([]netip.Addr(nil), state.Nodes[index].Listeners...)
 	}
 	state.IPv6Outbounds = append([]netip.Addr(nil), state.IPv6Outbounds...)
+	state.RemoteOutbounds = append([]runtimeconfig.PersistedRemoteOutbound(nil), state.RemoteOutbounds...)
+	for index := range state.RemoteOutbounds {
+		state.RemoteOutbounds[index].Config = append([]byte(nil), state.RemoteOutbounds[index].Config...)
+	}
+	state.IPv4Fallback = append([]string(nil), state.IPv4Fallback...)
 	return state
 }
