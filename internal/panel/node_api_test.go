@@ -61,8 +61,12 @@ func TestNodeCreateRequiresCSRFConfirmationAndStrictInput(t *testing.T) {
 	if created.Code != http.StatusCreated || len(manager.createCalls) != 1 {
 		t.Fatalf("created response = %d, calls = %#v", created.Code, manager.createCalls)
 	}
-	if manager.createCalls[0] != (nodes.CreateInput{ID: "new-vmess", Protocol: domain.ProtocolVMess, Port: 25555, Enabled: true}) {
-		t.Fatalf("create input = %#v", manager.createCalls[0])
+	createCall := manager.createCalls[0]
+	if createCall.ID != "new-vmess" || createCall.Protocol != domain.ProtocolVMess || createCall.Port != 25555 || !createCall.Enabled {
+		t.Fatalf("create input = %#v", createCall)
+	}
+	if createCall.Deployment.NodeID != "" || len(createCall.Deployment.Listeners) != 0 {
+		t.Fatalf("legacy node payload unexpectedly supplied deployment data: %#v", createCall.Deployment)
 	}
 	if strings.Contains(created.Body.String(), `"credential"`) || strings.Contains(created.Body.String(), manager.config.Nodes[1].Credential.UUID) {
 		t.Fatalf("create response leaked credential: %s", created.Body.String())
