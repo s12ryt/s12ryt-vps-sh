@@ -856,6 +856,82 @@ func TestLoadApplicationWiresManagedRemoteOutboundAPI(t *testing.T) {
 	}
 }
 
+func TestLoadApplicationWiresProtectedShareServiceToRuntimeHealth(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	configStore := store.NewConfigStore(paths.config)
+	config, err := configStore.Load()
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	config.Nodes = []domain.Node{{
+		ID:       "share-edge",
+		Protocol: domain.ProtocolVLESS,
+		Port:     24443,
+		Enabled:  true,
+		Credential: domain.NodeCredential{
+			UUID: "123e4567-e89b-42d3-a456-426614174000",
+		},
+	}}
+	if err := configStore.Save(config); err != nil {
+		t.Fatalf("save configuration: %v", err)
+	}
+	stateStore, err := runtimeconfig.NewDeploymentStateStore(paths.runtimeState)
+	if err != nil {
+		t.Fatalf("NewDeploymentStateStore() error = %v", err)
+	}
+	state := runtimeconfig.DeploymentState{
+		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
+		Nodes: []runtimeconfig.PersistedNodeDeployment{{
+			NodeID:    "share-edge",
+			Listeners: []netip.Addr{netip.MustParseAddr("2001:db8::20")},
+		}},
+		IPv6Outbounds: []netip.Addr{netip.MustParseAddr("2001:db8:ffff::20")},
+	}
+	if err := stateStore.Save(state); err != nil {
+		t.Fatalf("save deployment state: %v", err)
+	}
+
+	runtime := &stubRuntime{}
+	application, err := loadApplication(runtimeOptions{
+		ConfigPath:        paths.config,
+		PasswordHashPath:  paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
+		RuntimeConfigPath: paths.runtimeConfig,
+		Entropy:           bytes.NewReader(bytes.Repeat([]byte{0x5e}, 512)),
+		Clock:             func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Runtime:           runtime,
+		ValidateRuntime:   func([]byte) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+
+	cookie := runtimeLogin(t, application.handler)
+	dashboard := httptest.NewRecorder()
+	dashboardRequest := httptest.NewRequest(http.MethodGet, "/configureme1", nil)
+	dashboardRequest.RemoteAddr = "198.51.100.20:43210"
+	dashboardRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(dashboard, dashboardRequest)
+	csrfMatch := regexp.MustCompile(`name="csrf-token" content="([^"]+)"`).FindStringSubmatch(dashboard.Body.String())
+	if dashboard.Code != http.StatusOK || len(csrfMatch) != 2 {
+		t.Fatalf("dashboard response = %d, csrf match = %#v", dashboard.Code, csrfMatch)
+	}
+
+	revealed := httptest.NewRecorder()
+	revealRequest := httptest.NewRequest(http.MethodPost, "/configureme1/api/shares/reveal", bytes.NewBufferString(`{"password":"correct horse battery staple"}`))
+	revealRequest.RemoteAddr = "198.51.100.20:43210"
+	revealRequest.Header.Set("Content-Type", "application/json")
+	revealRequest.Header.Set("X-CSRF-Token", csrfMatch[1])
+	revealRequest.AddCookie(cookie)
+	application.handler.ServeHTTP(revealed, revealRequest)
+	if revealed.Code != http.StatusOK || !strings.Contains(revealed.Body.String(), "vless://") || !strings.Contains(revealed.Body.String(), `"qr_url":"/configureme1/api/shares/share-edge/qr"`) {
+		t.Fatalf("share reveal response = %d %q, want protected runtime share", revealed.Code, revealed.Body.String())
+	}
+	if runtime.healthChecks != 1 {
+		t.Fatalf("runtime health checks = %d, want 1", runtime.healthChecks)
+	}
+}
+
 func TestLoadApplicationWiresNetworkIntegrationAPI(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	manager := &stubNetworkManager{addresses: []projectnetwork.InterfaceAddress{{
