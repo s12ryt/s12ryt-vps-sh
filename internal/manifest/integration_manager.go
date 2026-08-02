@@ -72,6 +72,35 @@ func (manager *IntegrationManager) Apply(ctx context.Context, candidate Manifest
 	return nil
 }
 
+func (manager *IntegrationManager) Restore(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("integration restore context is required")
+	}
+	current, err := manager.repository.Load()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load integration manifest for restore: %w", err)
+	}
+	groups, err := buildIntegrationCommandGroups(current)
+	if err != nil {
+		return fmt.Errorf("build integration restore commands: %w", err)
+	}
+
+	attempted := make([]integrationCommandGroup, 0, len(groups))
+	for _, group := range groups {
+		attempted = append(attempted, group)
+		for _, command := range group.apply {
+			if err := manager.run(ctx, command); err != nil {
+				restoreErr := fmt.Errorf("restore integration command: %w", err)
+				return errors.Join(restoreErr, manager.rollback(context.WithoutCancel(ctx), attempted))
+			}
+		}
+	}
+	return nil
+}
+
 func (manager *IntegrationManager) Remove(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("integration cleanup context is required")
