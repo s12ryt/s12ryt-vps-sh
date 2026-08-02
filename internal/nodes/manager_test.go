@@ -13,9 +13,9 @@ func TestManagerCreatesNodeWithAutomaticPortAndUniqueCredential(t *testing.T) {
 	store := &recordingStore{}
 	allocatorCalls := 0
 	manager, err := NewManager(ManagerOptions{
-		Config:       domain.DefaultConfig(),
-		Store:        store,
-		Entropy:      bytes.NewReader(bytes.Repeat([]byte{0x31}, 128)),
+		Config:  domain.DefaultConfig(),
+		Store:   store,
+		Entropy: bytes.NewReader(bytes.Repeat([]byte{0x31}, 128)),
 		AllocatePort: func() (int, error) {
 			allocatorCalls++
 			return 24443, nil
