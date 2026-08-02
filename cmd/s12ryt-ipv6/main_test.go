@@ -410,6 +410,11 @@ func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 
 	payload, _ := json.Marshal(map[string]any{
 		"id": "runtime-vless", "protocol": "vless", "port": 0, "enabled": true,
+		"deployment": map[string]any{
+			"listeners": []string{"2001:db8::10"},
+			"tls":       map[string]any{"enabled": false},
+			"transport": map[string]any{},
+		},
 	})
 	created := httptest.NewRecorder()
 	createRequest := httptest.NewRequest(http.MethodPost, "/configureme1/api/nodes", bytes.NewReader(payload))
