@@ -258,5 +258,6 @@ func endpointManifest() manifest.Manifest {
 				{Port: 25000, Protocol: "tcp"},
 				{Port: 25000, Protocol: "udp"},
 			},
+		},
 	}
 }
