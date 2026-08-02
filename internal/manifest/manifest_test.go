@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -166,6 +167,30 @@ func TestStoreRejectsUnknownUnprotectedAndLinkedManifest(t *testing.T) {
 				t.Fatal("Load() error = nil, want protected strict manifest rejection")
 			}
 		})
+	}
+}
+
+func TestStoreRemoveDeletesProtectedManifestAndBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "integration.json")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if err := store.Save(manifestFixture()); err != nil {
+		t.Fatalf("Save(original) error = %v", err)
+	}
+	updated := manifestFixture()
+	updated.Addresses = append(updated.Addresses, "2001:db8:100::12")
+	if err := store.Save(updated); err != nil {
+		t.Fatalf("Save(updated) error = %v", err)
+	}
+	if err := store.Remove(); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	for _, removed := range []string{path, path + ".bak"} {
+		if _, err := os.Lstat(removed); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Lstat(%s) error = %v, want not exist", removed, err)
+		}
 	}
 }
 
