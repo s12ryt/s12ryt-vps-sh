@@ -84,6 +84,7 @@ if [[ "${1:-}" == "init" ]]; then
     mkdir -p "${S12RYT_PROJECT_ROOT}/config" "${S12RYT_PROJECT_ROOT}/secrets"
     printf '{"schema_version":1}\n' > "${S12RYT_PROJECT_ROOT}/config/config.json"
     printf 'protected-hash\n' > "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
+    printf 'GeneratedPassword12345678\n' > "${S12RYT_PROJECT_ROOT}/secrets/management.password"
 fi
 EOF
     chmod +x "${bundle}/s12ryt-ipv6-linux-amd64"
@@ -237,6 +238,7 @@ EOF
     [ -x "${S12RYT_PROJECT_ROOT}/bin/sing-box" ]
     [ -s "${S12RYT_PROJECT_ROOT}/config/config.json" ]
     [ "$(stat -c '%a' "${S12RYT_PROJECT_ROOT}/secrets/password.hash")" = "600" ]
+    [ "$(stat -c '%a' "${S12RYT_PROJECT_ROOT}/secrets/management.password")" = "600" ]
     [ "$(stat -c '%a' "$unit_path")" = "644" ]
     grep -Fq "ExecStart=${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6 serve" "$unit_path"
     grep -Fq 'NoNewPrivileges=true' "$unit_path"
@@ -244,6 +246,33 @@ EOF
     grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
     grep -Fxq 'systemctl enable --now s12ryt-ipv6.service' "$MOCK_LOG"
     grep -Fxq 'panel init' "$MOCK_LOG"
+}
+
+@test "configure 命令只透過已安裝 binary 顯示受保護狀態" {
+    mkdir -p "${S12RYT_PROJECT_ROOT}/bin"
+    cat > "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" <<'EOF'
+#!/bin/bash
+printf 'panel %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod 0755 "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
+
+    [ "$status" -eq 0 ]
+    grep -Fxq 'panel status' "$MOCK_LOG"
+
+    rm -f "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
+    run /usr/bin/env \
+        PATH="$PATH" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"IPv6 管理面板尚未安裝"* ]]
 }
 
 @test "下載後尚未帶執行權限的面板資產仍可安全部署" {

@@ -71,3 +71,27 @@ EOF
     [ -x "$helper_target" ]
     grep -Fxq 'ipv6-helper install' "$MOCK_LOG"
 }
+
+@test "設定入口會驗證 helper 後執行 configure" {
+    local helper_source="${TEST_ROOT}/install-ipv6-source.sh"
+    local helper_target="${TEST_ROOT}/stable/install-ipv6.sh"
+    cat > "$helper_source" <<'EOF'
+#!/bin/bash
+printf 'ipv6-helper %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod 0644 "$helper_source"
+
+    run /usr/bin/env \
+        HOME="$HOME" \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_SOURCE_ONLY=1 \
+        S12RYT_IPV6_HELPER_SOURCE="$helper_source" \
+        S12RYT_IPV6_HELPER_PATH="$helper_target" \
+        /bin/bash -c 'source "$1"; configure_ipv6_project' _ \
+        "${PROJECT_ROOT}/s12ryt.sh"
+
+    [ "$status" -eq 0 ]
+    [ -x "$helper_target" ]
+    grep -Fxq 'ipv6-helper configure' "$MOCK_LOG"
+}
