@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -192,6 +193,77 @@ func TestRunInitCommandPrintsBootstrapCredentialsWithoutHash(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "$pbkdf2-sha256$") {
 		t.Fatalf("init output leaked password hash: %s", output.String())
+	}
+}
+
+func TestRunStatusCommandPrintsDualStackURLsAndRecoverablePassword(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	result, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x39}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	var output bytes.Buffer
+	err = runCommand([]string{"status"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Output:      &output,
+		Addresses: func() ([]netip.Addr, error) {
+			return []netip.Addr{netip.MustParseAddr("198.51.100.7"), netip.MustParseAddr("2001:db8::7")}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runCommand(status) error = %v", err)
+	}
+	for _, expected := range []string{
+		"ipv4: http://198.51.100.7:34456" + result.WebPath,
+		"ipv6: http://[2001:db8::7]:34456" + result.WebPath,
+		"管理密碼：" + result.Password,
+		"Web 路徑：" + result.WebPath,
+		"管理埠：34456",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("status output missing %q: %s", expected, output.String())
+		}
+	}
+}
+
+func TestRunStatusCommandReportsMissingAddressesAndRejectsUnprotectedPassword(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	_, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3a}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	var output bytes.Buffer
+	err = runCommand([]string{"status"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Output:      &output,
+		Addresses:   func() ([]netip.Addr, error) { return nil, nil },
+	})
+	if err != nil {
+		t.Fatalf("runCommand(status) without addresses error = %v", err)
+	}
+	for _, expected := range []string{"ipv4: {未獲取到}", "ipv6: {未獲取到}"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("status output missing %q: %s", expected, output.String())
+		}
+	}
+
+	passwordPath := filepath.Join(projectRoot, "secrets", "management.password")
+	if err := os.Chmod(passwordPath, 0o644); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	err = runCommand([]string{"status"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Output:      &bytes.Buffer{},
+		Addresses:   func() ([]netip.Addr, error) { return nil, nil },
+	})
+	if err == nil {
+		t.Fatal("runCommand(status) accepted a group/world-readable plaintext password")
 	}
 }
 
