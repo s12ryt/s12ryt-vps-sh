@@ -264,6 +264,7 @@ EOF
         S12RYT_EFFECTIVE_UID=0 \
         S12RYT_INIT_SYSTEM=systemd \
         S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
         /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
 
     [ "$status" -eq 0 ]
@@ -277,6 +278,7 @@ EOF
         S12RYT_EFFECTIVE_UID=0 \
         S12RYT_INIT_SYSTEM=systemd \
         S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
         /bin/bash "${PROJECT_ROOT}/install-ipv6.sh" configure
 
     [ "$status" -ne 0 ]
