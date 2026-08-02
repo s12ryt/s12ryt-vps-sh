@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/topology"
 )
 
 var nodeIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
@@ -25,6 +26,7 @@ const (
 type ServerInput struct {
 	Nodes         []InboundNode
 	IPv6Outbounds []netip.Addr
+	RoutingPlan   *topology.Plan
 }
 
 type InboundNode struct {
@@ -68,6 +70,11 @@ type TransportConfig struct {
 type serverConfig struct {
 	Inbounds  []map[string]any `json:"inbounds"`
 	Outbounds []map[string]any `json:"outbounds"`
+	Route     *routeConfig     `json:"route,omitempty"`
+}
+
+type routeConfig struct {
+	Rules []map[string]any `json:"rules"`
 }
 
 func GenerateServerConfig(input ServerInput) ([]byte, error) {
@@ -114,12 +121,184 @@ func GenerateServerConfig(input ServerInput) ([]byte, error) {
 			"inet6_bind_address": address.String(),
 		})
 	}
+	if input.RoutingPlan != nil {
+		if err := applyRoutingPlan(&config, input.Nodes, *input.RoutingPlan); err != nil {
+			return nil, fmt.Errorf("apply routing plan: %w", err)
+		}
+	}
 
 	payload, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal sing-box configuration: %w", err)
 	}
 	return payload, nil
+}
+
+func applyRoutingPlan(config *serverConfig, nodes []InboundNode, plan topology.Plan) error {
+	nodeTags := make(map[string][]string, len(nodes))
+	for _, node := range nodes {
+		if _, duplicate := nodeTags[node.ID]; duplicate {
+			return fmt.Errorf("duplicate routing node %q", node.ID)
+		}
+		tags := make([]string, 0, len(node.Listeners))
+		for _, listener := range node.Listeners {
+			family := "v6"
+			if listener.Is4() {
+				family = "v4"
+			}
+			tags = append(tags, fmt.Sprintf("in-%s-%s", node.ID, family))
+		}
+		nodeTags[node.ID] = tags
+	}
+
+	available := outboundTags(config.Outbounds)
+	ipv4Target, err := appendIPv4RoutingOutbounds(config, available, plan)
+	if err != nil {
+		return err
+	}
+	rules := make([]map[string]any, 0, len(plan.Nodes)*2)
+	seenPlans := make(map[string]struct{}, len(plan.Nodes))
+	for _, nodePlan := range plan.Nodes {
+		inboundTags, exists := nodeTags[nodePlan.NodeID]
+		if !exists {
+			return fmt.Errorf("routing plan references unknown node %q", nodePlan.NodeID)
+		}
+		if _, duplicate := seenPlans[nodePlan.NodeID]; duplicate {
+			return fmt.Errorf("duplicate routing plan for node %q", nodePlan.NodeID)
+		}
+		seenPlans[nodePlan.NodeID] = struct{}{}
+		outbound, err := appendNodeRoutingOutbound(config, available, nodePlan)
+		if err != nil {
+			return err
+		}
+		rules = append(rules, map[string]any{
+			"inbound":    inboundTags,
+			"ip_version": 6,
+			"action":     "route",
+			"outbound":   outbound,
+		})
+		ipv4Rule := map[string]any{
+			"inbound":    inboundTags,
+			"ip_version": 4,
+		}
+		if ipv4Target == "" {
+			ipv4Rule["action"] = "reject"
+		} else {
+			ipv4Rule["action"] = "route"
+			ipv4Rule["outbound"] = ipv4Target
+		}
+		rules = append(rules, ipv4Rule)
+	}
+	if len(seenPlans) != len(nodeTags) {
+		return errors.New("routing plan must cover every enabled node")
+	}
+	config.Route = &routeConfig{Rules: rules}
+	return nil
+}
+
+func outboundTags(outbounds []map[string]any) map[string]struct{} {
+	tags := make(map[string]struct{}, len(outbounds))
+	for _, outbound := range outbounds {
+		if tag, ok := outbound["tag"].(string); ok {
+			tags[tag] = struct{}{}
+		}
+	}
+	return tags
+}
+
+func appendIPv4RoutingOutbounds(config *serverConfig, available map[string]struct{}, plan topology.Plan) (string, error) {
+	switch plan.Mode {
+	case domain.RoutingModeClientIPv4:
+		if plan.IPv4.Action != topology.IPv4ClientDirect || len(plan.IPv4.Candidates) != 0 {
+			return "", errors.New("client IPv4 mode has an invalid IPv4 policy")
+		}
+		return "", nil
+	case domain.RoutingModeIPv6Only:
+		if plan.IPv4.Action != topology.IPv4Reject || len(plan.IPv4.Candidates) != 0 {
+			return "", errors.New("IPv6-only mode has an invalid IPv4 policy")
+		}
+		return "", nil
+	case domain.RoutingModeVPSIPv4:
+		if plan.IPv4.Action != topology.IPv4VPSFallback || len(plan.IPv4.Candidates) == 0 {
+			return "", errors.New("VPS IPv4 mode requires ordered IPv4 outbounds")
+		}
+	default:
+		return "", fmt.Errorf("unsupported routing mode %q", plan.Mode)
+	}
+
+	for _, candidate := range plan.IPv4.Candidates {
+		if candidate == "direct-v4" {
+			if _, exists := available[candidate]; !exists {
+				config.Outbounds = append(config.Outbounds, map[string]any{"type": "direct", "tag": candidate})
+				available[candidate] = struct{}{}
+			}
+		}
+		if _, exists := available[candidate]; !exists {
+			return "", fmt.Errorf("IPv4 routing references unavailable outbound %q", candidate)
+		}
+	}
+	if len(plan.IPv4.Candidates) == 1 {
+		return plan.IPv4.Candidates[0], nil
+	}
+	const selectorTag = "select-ipv4"
+	if _, exists := available[selectorTag]; exists {
+		return "", fmt.Errorf("IPv4 selector tag %q conflicts with an outbound", selectorTag)
+	}
+	config.Outbounds = append(config.Outbounds, selectorOutbound(selectorTag, plan.IPv4.Candidates, 0))
+	available[selectorTag] = struct{}{}
+	return selectorTag, nil
+}
+
+func appendNodeRoutingOutbound(
+	config *serverConfig,
+	available map[string]struct{},
+	plan topology.NodePlan,
+) (string, error) {
+	if plan.StaticOutbound != "" && plan.Rotation != nil {
+		return "", fmt.Errorf("node %q cannot use static and rotating outbounds together", plan.NodeID)
+	}
+	if plan.StaticOutbound != "" {
+		if _, exists := available[plan.StaticOutbound]; !exists {
+			return "", fmt.Errorf("node %q references unavailable outbound %q", plan.NodeID, plan.StaticOutbound)
+		}
+		return plan.StaticOutbound, nil
+	}
+	rotation := plan.Rotation
+	if rotation == nil || len(rotation.Candidates) < 2 || rotation.Interval <= 0 || !rotation.NewConnectionsOnly {
+		return "", fmt.Errorf("node %q has an invalid rotation plan", plan.NodeID)
+	}
+	if rotation.StartIndex < 0 || rotation.StartIndex >= len(rotation.Candidates) {
+		return "", fmt.Errorf("node %q rotation start index is invalid", plan.NodeID)
+	}
+	candidates := make([]string, 0, len(rotation.Candidates))
+	seen := make(map[string]struct{}, len(rotation.Candidates))
+	for _, candidate := range rotation.Candidates {
+		if _, duplicate := seen[candidate.Tag]; duplicate {
+			return "", fmt.Errorf("node %q has duplicate rotation outbound %q", plan.NodeID, candidate.Tag)
+		}
+		if _, exists := available[candidate.Tag]; !exists {
+			return "", fmt.Errorf("node %q references unavailable outbound %q", plan.NodeID, candidate.Tag)
+		}
+		seen[candidate.Tag] = struct{}{}
+		candidates = append(candidates, candidate.Tag)
+	}
+	selectorTag := "rotate-" + plan.NodeID
+	if _, exists := available[selectorTag]; exists {
+		return "", fmt.Errorf("rotation selector tag %q conflicts with an outbound", selectorTag)
+	}
+	config.Outbounds = append(config.Outbounds, selectorOutbound(selectorTag, candidates, rotation.StartIndex))
+	available[selectorTag] = struct{}{}
+	return selectorTag, nil
+}
+
+func selectorOutbound(tag string, candidates []string, defaultIndex int) map[string]any {
+	return map[string]any{
+		"type":                        "selector",
+		"tag":                         tag,
+		"outbounds":                   append([]string(nil), candidates...),
+		"default":                     candidates[defaultIndex],
+		"interrupt_exist_connections": false,
+	}
 }
 
 func validateInboundNode(node InboundNode) error {
