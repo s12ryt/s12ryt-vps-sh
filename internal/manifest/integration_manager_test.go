@@ -110,6 +110,38 @@ func TestIntegrationManagerReplacesExistingManifestTransactionally(t *testing.T)
 	}
 }
 
+func TestIntegrationManagerUpsertsNewAndExistingManifest(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		current *Manifest
+	}{
+		"new integration":      {},
+		"existing integration": {current: manifestPointer(manifestFixture())},
+	} {
+		t.Run(name, func(t *testing.T) {
+			events := []string{}
+			repository := &recordingManifestRepository{current: testCase.current, events: &events}
+			runner := &recordingSystemRunner{events: &events}
+			manager, err := NewIntegrationManager(repository, runner)
+			if err != nil {
+				t.Fatalf("NewIntegrationManager() error = %v", err)
+			}
+			candidate := replacementManifestFixture()
+			if err := manager.Upsert(context.Background(), candidate); err != nil {
+				t.Fatalf("Upsert() error = %v", err)
+			}
+			if repository.current == nil || repository.current.Addresses[0] != candidate.Addresses[0] {
+				t.Fatalf("upserted manifest = %#v", repository.current)
+			}
+			if !eventContains(events, "ip -6 addr add 2001:db8:200::20/64 dev eth0") {
+				t.Fatalf("upsert did not apply candidate: %#v", events)
+			}
+			if name == "existing integration" && !eventContains(events, "nft delete table inet s12ryt-ipv6") {
+				t.Fatalf("upsert did not replace existing integration: %#v", events)
+			}
+		})
+	}
+}
+
 func TestIntegrationManagerRestoresCurrentManifestWhenReplacementFails(t *testing.T) {
 	cleanupFailure := errors.New("old firewall cleanup failed")
 	applyFailure := errors.New("new route apply failed")
@@ -445,4 +477,8 @@ func replacementManifestFixture() Manifest {
 			},
 		},
 	}
+}
+
+func manifestPointer(value Manifest) *Manifest {
+	return &value
 }
