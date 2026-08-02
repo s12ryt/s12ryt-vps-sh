@@ -71,6 +71,31 @@ EOF
     chmod +x "${MOCK_BIN}/curl"
 }
 
+create_verified_ipv6_bundle() {
+    local bundle="$1"
+    local archive_root="${TEST_ROOT}/install-archive-root"
+
+    mkdir -p "$bundle" "${archive_root}/sing-box-1.13.15-linux-amd64"
+    cat > "${bundle}/s12ryt-ipv6-linux-amd64" <<'EOF'
+#!/bin/bash
+printf 'panel %s\n' "$*" >> "$MOCK_LOG"
+if [[ "${1:-}" == "init" ]]; then
+    mkdir -p "${S12RYT_PROJECT_ROOT}/config" "${S12RYT_PROJECT_ROOT}/secrets"
+    printf '{"schema_version":1}\n' > "${S12RYT_PROJECT_ROOT}/config/config.json"
+    printf 'protected-hash\n' > "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
+fi
+EOF
+    chmod +x "${bundle}/s12ryt-ipv6-linux-amd64"
+    cat > "${archive_root}/sing-box-1.13.15-linux-amd64/sing-box" <<'EOF'
+#!/bin/bash
+printf 'sing-box %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod +x "${archive_root}/sing-box-1.13.15-linux-amd64/sing-box"
+    /usr/bin/tar -czf "${bundle}/sing-box-1.13.15-linux-amd64.tar.gz" \
+        -C "$archive_root" sing-box-1.13.15-linux-amd64
+    rm -rf "$archive_root"
+}
+
 @test "IPv6 專案只接受 Linux root systemd 或 OpenRC 與支援架構" {
     local row kernel uid init arch expected
     local -a cases=(
@@ -190,4 +215,88 @@ download-fail|無法下載 IPv6 專案資產
 checksum-fail|面板資產 SHA256 驗證失敗
 archive-fail|sing-box 壓縮檔驗證失敗
 EOF
+}
+
+@test "systemd 安裝會部署受保護 binary 初始化狀態並啟用服務" {
+    create_command_mock systemctl
+    local bundle="${TEST_ROOT}/verified-bundle"
+    create_verified_ipv6_bundle "$bundle"
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -eq 0 ]
+    [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    [ -x "${S12RYT_PROJECT_ROOT}/bin/sing-box" ]
+    [ -s "${S12RYT_PROJECT_ROOT}/config/config.json" ]
+    [ "$(stat -c '%a' "${S12RYT_PROJECT_ROOT}/secrets/password.hash")" = "600" ]
+    [ "$(stat -c '%a' "$unit_path")" = "644" ]
+    grep -Fq "ExecStart=${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6 serve" "$unit_path"
+    grep -Fq 'NoNewPrivileges=true' "$unit_path"
+    grep -Fq "ReadWritePaths=${S12RYT_PROJECT_ROOT}" "$unit_path"
+    grep -Fxq 'systemctl daemon-reload' "$MOCK_LOG"
+    grep -Fxq 'systemctl enable --now s12ryt-ipv6.service' "$MOCK_LOG"
+    grep -Fxq 'panel init' "$MOCK_LOG"
+}
+
+@test "OpenRC 安裝會建立服務與受限輪替日誌設定" {
+    create_command_mock rc-update
+    create_command_mock rc-service
+    local bundle="${TEST_ROOT}/verified-bundle"
+    create_verified_ipv6_bundle "$bundle"
+    local service_path="${TEST_ROOT}/etc/init.d/s12ryt-ipv6"
+    local logrotate_path="${TEST_ROOT}/etc/logrotate.d/s12ryt-ipv6"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_OPENRC_SERVICE_PATH="$service_path" \
+        S12RYT_LOGROTATE_PATH="$logrotate_path" \
+        /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 openrc' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -eq 0 ]
+    [ "$(stat -c '%a' "$service_path")" = "755" ]
+    [ "$(stat -c '%a' "$logrotate_path")" = "644" ]
+    grep -Fq "command=\"${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6\"" "$service_path"
+    grep -Fq 'command_args="serve"' "$service_path"
+    grep -Fq 'rotate 7' "$logrotate_path"
+    grep -Fq 'size 100M' "$logrotate_path"
+    grep -Fxq 'rc-update add s12ryt-ipv6 default' "$MOCK_LOG"
+    grep -Fxq 'rc-service s12ryt-ipv6 start' "$MOCK_LOG"
+}
+
+@test "初始化失敗時不註冊服務並移除本次新安裝檔案" {
+    create_command_mock systemctl
+    local bundle="${TEST_ROOT}/verified-bundle"
+    create_verified_ipv6_bundle "$bundle"
+    cat > "${bundle}/s12ryt-ipv6-linux-amd64" <<'EOF'
+#!/bin/bash
+printf 'panel %s\n' "$*" >> "$MOCK_LOG"
+exit 1
+EOF
+    chmod +x "${bundle}/s12ryt-ipv6-linux-amd64"
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"面板初始化失敗"* ]]
+    [ ! -e "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    [ ! -e "${S12RYT_PROJECT_ROOT}/bin/sing-box" ]
+    [ ! -e "$unit_path" ]
+    ! grep -Fq 'enable --now' "$MOCK_LOG"
 }
