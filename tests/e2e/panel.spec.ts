@@ -115,6 +115,159 @@ test('鍵盤可跳至主內容且 modal 會鎖定並返回焦點', async ({ page
   await expect(trigger).toBeFocused();
 });
 
+test('modal 開啟時背景不可互動且關閉後恢復', async ({ page }) => {
+  await login(page);
+  const background = page.locator('.dashboard-frame');
+  const trigger = page.getByRole('button', { name: '出口模式' });
+
+  await trigger.click();
+  await expect(page.locator('[data-modal="routing"]')).toBeVisible();
+  await expect(background).toHaveJSProperty('inert', true);
+
+  await page.keyboard.press('Escape');
+  await expect(background).toHaveJSProperty('inert', false);
+  await expect(trigger).toBeFocused();
+});
+
+test('開啟另一個 modal 會先關閉目前 modal 並返回新觸發控制', async ({ page }) => {
+  await login(page);
+  const routingTrigger = page.getByRole('button', { name: '出口模式' });
+  const topologyTrigger = page.getByRole('button', { name: '拓撲' });
+  const routingModal = page.locator('[data-modal="routing"]');
+  const topologyModal = page.locator('[data-modal="topology"]');
+
+  await routingTrigger.click();
+  await topologyTrigger.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(routingModal).toBeHidden();
+  await expect(topologyModal).toBeVisible();
+  await expect(page.locator('[data-modal]:visible')).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(topologyTrigger).toBeFocused();
+});
+
+test('策略套用在驗證與套用請求期間維持單一 busy 生命週期', async ({ page }) => {
+  let validationRequests = 0;
+  let applyRequests = 0;
+  let releaseValidation: (() => void) | undefined;
+  let releaseApply: (() => void) | undefined;
+  const validationPending = new Promise<void>((resolve) => { releaseValidation = resolve; });
+  const applyPending = new Promise<void>((resolve) => { releaseApply = resolve; });
+  await page.route(`**${panelPath}/api/config/validate`, async (route) => {
+    validationRequests += 1;
+    await validationPending;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{"valid":true,"changed":true}' });
+  });
+  await page.route(`**${panelPath}/api/config/apply`, async (route) => {
+    applyRequests += 1;
+    await applyPending;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{"applied":true}' });
+  });
+  page.on('dialog', (dialog) => dialog.accept());
+  await login(page);
+  await page.getByRole('button', { name: '出口模式' }).click();
+  const apply = page.locator('[data-modal="routing"] [data-config-save]');
+
+  await apply.click();
+  try {
+    await expect.poll(() => validationRequests).toBe(1);
+    await expect(apply).toBeDisabled();
+    await expect(apply).toHaveAttribute('aria-busy', 'true');
+    await apply.evaluate((button: HTMLButtonElement) => button.click());
+    await expect.poll(() => validationRequests).toBe(1);
+
+    releaseValidation?.();
+    await expect.poll(() => applyRequests).toBe(1);
+    await expect(apply).toBeDisabled();
+    await expect(apply).toHaveAttribute('aria-busy', 'true');
+  } finally {
+    releaseValidation?.();
+    releaseApply?.();
+  }
+  await expect(apply).toBeEnabled();
+  await expect(apply).not.toHaveAttribute('aria-busy', 'true');
+});
+
+const managedButtonCases = [
+  {
+    name: '節點刪除',
+    workspace: '節點',
+    listPath: 'nodes',
+    listBody: [{ id: 'edge-test', protocol: 'vless', port: 24443, enabled: true, credential_configured: true }],
+    selector: '[data-node-delete]',
+    mutationMethod: 'DELETE',
+    mutationPath: 'nodes/edge-test',
+    responseStatus: 204,
+    responseBody: '',
+  },
+  {
+    name: '遠端啟停',
+    workspace: '遠端出口',
+    listPath: 'remotes',
+    listBody: [{ tag: 'remote-test', type: 'vless', server: 'proxy.example.com', port: 443, enabled: true, ipv4_fallback_position: 0 }],
+    selector: '[data-remote-toggle]',
+    mutationMethod: 'PATCH',
+    mutationPath: 'remotes/remote-test',
+    responseStatus: 200,
+    responseBody: JSON.stringify({ tag: 'remote-test', type: 'vless', server: 'proxy.example.com', port: 443, enabled: false, ipv4_fallback_position: 0 }),
+  },
+  {
+    name: '遠端刪除',
+    workspace: '遠端出口',
+    listPath: 'remotes',
+    listBody: [{ tag: 'remote-test', type: 'vless', server: 'proxy.example.com', port: 443, enabled: true, ipv4_fallback_position: 0 }],
+    selector: '[data-remote-delete]',
+    mutationMethod: 'DELETE',
+    mutationPath: 'remotes/remote-test',
+    responseStatus: 204,
+    responseBody: '',
+  },
+] as const;
+
+for (const managedCase of managedButtonCases) {
+  test(`${managedCase.name}按鈕會標示 busy、停用並防止重複請求`, async ({ page }) => {
+    let mutationRequests = 0;
+    let releaseMutation: (() => void) | undefined;
+    const mutationPending = new Promise<void>((resolve) => { releaseMutation = resolve; });
+    await page.route(`**${panelPath}/api/${managedCase.listPath}`, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(managedCase.listBody),
+    }));
+    await page.route(`**${panelPath}/api/${managedCase.mutationPath}`, async (route) => {
+      if (route.request().method() !== managedCase.mutationMethod) {
+        await route.fallback();
+        return;
+      }
+      mutationRequests += 1;
+      await mutationPending;
+      await route.fulfill({
+        status: managedCase.responseStatus,
+        contentType: managedCase.responseBody ? 'application/json' : undefined,
+        body: managedCase.responseBody,
+      });
+    });
+    page.on('dialog', (dialog) => dialog.accept());
+    await login(page);
+    await page.getByRole('tab', { name: managedCase.workspace }).click();
+    const action = page.locator(managedCase.selector).first();
+    await expect(action).toBeVisible();
+
+    await action.click();
+    try {
+      await expect.poll(() => mutationRequests).toBe(1);
+      await expect(action).toBeDisabled();
+      await expect(action).toHaveAttribute('aria-busy', 'true');
+      await action.evaluate((button: HTMLButtonElement) => button.click());
+      await expect.poll(() => mutationRequests).toBe(1);
+    } finally {
+      releaseMutation?.();
+    }
+    await expect(page.locator(managedCase.selector).first()).toBeEnabled();
+    await expect(page.locator(managedCase.selector).first()).not.toHaveAttribute('aria-busy', 'true');
+  });
+}
+
 test('缺少 CSRF 的狀態變更會被拒絕', async ({ page }) => {
   await login(page);
   const status = await page.evaluate(async () => {
