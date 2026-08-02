@@ -14,7 +14,7 @@ var outboundTagPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 type CandidateKind string
 
 const (
-	CandidateDirectIPv6 CandidateKind = "direct-ipv6"
+	CandidateDirectIPv6  CandidateKind = "direct-ipv6"
 	CandidateRemoteProxy CandidateKind = "remote-proxy"
 )
 
