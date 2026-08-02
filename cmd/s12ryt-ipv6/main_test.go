@@ -30,7 +30,7 @@ func TestLoadApplicationBuildsPanelFromProtectedFiles(t *testing.T) {
 	application, err := loadApplication(runtimeOptions{
 		ConfigPath:       paths.config,
 		PasswordHashPath: paths.passwordHash,
-		RuntimeStatePath:  paths.runtimeState,
+		RuntimeStatePath: paths.runtimeState,
 		Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x31}, 128)),
 		Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
 	})
@@ -347,7 +347,7 @@ func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	_, err := loadApplication(runtimeOptions{
 		ConfigPath:       paths.config,
 		PasswordHashPath: paths.passwordHash,
-		RuntimeStatePath:  paths.runtimeState,
+		RuntimeStatePath: paths.runtimeState,
 	})
 	if err == nil {
 		t.Fatal("loadApplication accepted a group/world-readable password hash")
@@ -373,7 +373,7 @@ func TestLoadApplicationRejectsMissingEnabledNodeDeployment(t *testing.T) {
 	_, err := loadApplication(runtimeOptions{
 		ConfigPath:       paths.config,
 		PasswordHashPath: paths.passwordHash,
-		RuntimeStatePath:  paths.runtimeState,
+		RuntimeStatePath: paths.runtimeState,
 		Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x41}, 128)),
 	})
 	if err == nil || !strings.Contains(err.Error(), "edge") {
@@ -387,7 +387,7 @@ func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 	application, err := loadApplication(runtimeOptions{
 		ConfigPath:             paths.config,
 		PasswordHashPath:       paths.passwordHash,
-		RuntimeStatePath:        paths.runtimeState,
+		RuntimeStatePath:       paths.runtimeState,
 		Entropy:                bytes.NewReader(bytes.Repeat([]byte{0x31}, 512)),
 		Clock:                  func() time.Time { return time.Unix(1_800_000_000, 0) },
 		PortChecker:            checker,
@@ -442,7 +442,7 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 		done <- runApplication(ctx, runtimeOptions{
 			ConfigPath:       paths.config,
 			PasswordHashPath: paths.passwordHash,
-			RuntimeStatePath:  paths.runtimeState,
+			RuntimeStatePath: paths.runtimeState,
 			Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
 			Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
 			Listen: func(gotNetwork string, gotAddress string) (net.Listener, error) {
