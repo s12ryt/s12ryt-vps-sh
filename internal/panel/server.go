@@ -61,34 +61,34 @@ type NetworkManager interface {
 }
 
 type Options struct {
-	BasePath      string
-	PasswordHash  string
-	Hasher        *auth.PasswordHasher
-	Sessions      *auth.SessionManager
-	Limiter       *auth.LoginLimiter
-	Config        domain.Config
-	Store         ConfigStore
-	NodeManager   NodeManager
-	RemoteManager RemoteManager
+	BasePath       string
+	PasswordHash   string
+	Hasher         *auth.PasswordHasher
+	Sessions       *auth.SessionManager
+	Limiter        *auth.LoginLimiter
+	Config         domain.Config
+	Store          ConfigStore
+	NodeManager    NodeManager
+	RemoteManager  RemoteManager
 	NetworkManager NetworkManager
-	Clock         func() time.Time
+	Clock          func() time.Time
 }
 
 type Server struct {
-	basePath      string
-	passwordHash  string
-	hasher        *auth.PasswordHasher
-	sessions      *auth.SessionManager
-	limiter       *auth.LoginLimiter
-	mutex         sync.RWMutex
-	config        domain.Config
-	store         ConfigStore
-	nodeManager   NodeManager
-	remoteManager RemoteManager
+	basePath       string
+	passwordHash   string
+	hasher         *auth.PasswordHasher
+	sessions       *auth.SessionManager
+	limiter        *auth.LoginLimiter
+	mutex          sync.RWMutex
+	config         domain.Config
+	store          ConfigStore
+	nodeManager    NodeManager
+	remoteManager  RemoteManager
 	networkManager NetworkManager
-	clock         func() time.Time
-	elevationMu   sync.Mutex
-	elevations    map[string]time.Time
+	clock          func() time.Time
+	elevationMu    sync.Mutex
+	elevations     map[string]time.Time
 }
 
 func NewServer(options Options) *Server {
@@ -101,18 +101,18 @@ func NewServer(options Options) *Server {
 		clock = time.Now
 	}
 	return &Server{
-		basePath:      strings.TrimRight(options.BasePath, "/"),
-		passwordHash:  options.PasswordHash,
-		hasher:        options.Hasher,
-		sessions:      options.Sessions,
-		limiter:       options.Limiter,
-		config:        config,
-		store:         options.Store,
-		nodeManager:   options.NodeManager,
-		remoteManager: options.RemoteManager,
+		basePath:       strings.TrimRight(options.BasePath, "/"),
+		passwordHash:   options.PasswordHash,
+		hasher:         options.Hasher,
+		sessions:       options.Sessions,
+		limiter:        options.Limiter,
+		config:         config,
+		store:          options.Store,
+		nodeManager:    options.NodeManager,
+		remoteManager:  options.RemoteManager,
 		networkManager: options.NetworkManager,
-		clock:         clock,
-		elevations:    make(map[string]time.Time),
+		clock:          clock,
+		elevations:     make(map[string]time.Time),
 	}
 }
 
