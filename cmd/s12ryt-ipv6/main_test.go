@@ -513,6 +513,33 @@ func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 	}
 }
 
+func TestLoadApplicationWiresManagedRemoteOutboundAPI(t *testing.T) {
+	paths := writeRuntimeFiles(t, 0o600)
+	application, err := loadApplication(runtimeOptions{
+		ConfigPath:        paths.config,
+		PasswordHashPath:  paths.passwordHash,
+		RuntimeStatePath:  paths.runtimeState,
+		RuntimeConfigPath: paths.runtimeConfig,
+		Entropy:           bytes.NewReader(bytes.Repeat([]byte{0x4d}, 256)),
+		Clock:             func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Runtime:           &stubRuntime{},
+		ValidateRuntime:   func([]byte) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+
+	cookie := runtimeLogin(t, application.handler)
+	request := httptest.NewRequest(http.MethodGet, "/configureme1/api/remotes", nil)
+	request.RemoteAddr = "198.51.100.20:43210"
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	application.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != "[]" {
+		t.Fatalf("remote list response = %d %q, want 200 []", response.Code, response.Body.String())
+	}
+}
+
 func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	listener := &stubListener{}
