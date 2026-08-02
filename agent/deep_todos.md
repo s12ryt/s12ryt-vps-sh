@@ -68,7 +68,7 @@
 - [x] TDD：skip link、focus-visible、modal 初始焦點/焦點鎖定/返回與完整鍵盤操作（RED `30765436863`；GREEN `30765726727`）。
 - [x] 執行 Playwright desktop/mobile、Go/Bash、文件、cross-build、資源與 10 發行版完整回歸及品質審查（UI 最終 GREEN `30766286190`；v1.1.1 發行候選 GREEN `30766839172`）。
 - [x] 更新主腳本、IPv6 helper、瀏覽器測試套件與 README 至 `v1.1.1`（版本/文件 RED `30766661023`；GREEN `30766839172`）。
-- [ ] 建立並驗證正式 `v1.1.1` Release，保留既有 Releases。
+- [x] 建立並驗證正式 `v1.1.1` Release，保留既有 Releases（tag commit `01d53b56e8eb55f117e98cc2c41a8415c1c99027`；發行候選 GREEN run `30767013669`）。
 
 ## 驗收依據
 
