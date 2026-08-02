@@ -120,3 +120,7 @@
 - 建立真實資源門檻：固定 64 個 IPv6、28 個 VLESS nodes、真 panel 與固定 sing-box v1.13.15，無流量穩定60秒。過程以TDD修復tar listing SIGPIPE與跨Go thread的 `/proc/<pid>/task/*/children` 子程序偵測缺陷。
 - 最完整發行前證據為 GitHub Actions run `30761047569`：Go format/test/vet、Bash syntax、ShellCheck、96 Bats、README/LICENSE、Playwright desktop/mobile 10 tests、amd64/arm64 release build/checksum/upload、10個x86_64發行版容器及真實資源門檻全部通過。Ubuntu 24.04 runner實測 panel RSS `17400 KiB`、sing-box RSS `44472 KiB`，合計 `61872 KiB / 102400 KiB`，餘裕 `40528 KiB`。
 - v1.1.0 程式、資料平面、CLI與CI功能已完成；README、主腳本版本、自我更新文件驗收與正式 `v1.1.0` Release 尚待獨立 RED→GREEN 與發行驗證，未提前宣稱完成。
+- 建立 v1.1.0 版本與文件契約；GitHub Actions run `30761478600` 中 Go、Playwright、Release assets、真實資源門檻與 10 個發行版容器均維持通過，只有正式主腳本仍為 v1.0.3 的四項 Bash 版本斷言按預期失敗，形成有效 RED 證據。
+- 將主腳本升至 v1.1.0，全面更新 README 的三腳本安裝流程、多 IPv6 面板、安全邊界、協議、三模式四拓撲、交易回滾、Release assets、Playwright 與資源證據。首個候選 run `30761947232` 只暴露自我更新測試仍把 v1.1.0 當成未來新版；將非 latest fixture 推進至 v1.2.0 後，安全與失敗保護斷言維持不變。
+- 最終發行候選 GitHub Actions run `30762093464` 完整通過 Go format/test/vet、Bash 語法、ShellCheck、96 項 Bats、README/LICENSE、Playwright 桌面/手機 10 項、amd64/arm64 Release assets 與 SHA256SUMS、真實 64 IPv6 + 28 nodes 穩定 60 秒資源門檻，以及 10 個 x86_64 發行版容器煙霧測試。
+- 完成 v1.1.0 發行前品質審查，未發現未處理的重大或高風險問題。自動化未涵蓋真實外部 VPS 與 arm64 實機；公開 HTTP 面板的憑證與 session 可能被網路攔截，README 已明確標示此使用者接受的風險。
