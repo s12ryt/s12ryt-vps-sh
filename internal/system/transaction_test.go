@@ -99,7 +99,7 @@ func TestTransactionReportsRollbackFailures(t *testing.T) {
 	rollbackFailure := errors.New("address removal failed")
 	runner := &recordingRunner{results: map[string][]runnerResult{
 		"systemctl enable --now s12ryt-ipv6.service": {{err: applyFailure}},
-		"ip -6 addr del 2001:db8::10/64 dev eth0":   {{err: rollbackFailure}},
+		"ip -6 addr del 2001:db8::10/64 dev eth0":    {{err: rollbackFailure}},
 	}}
 	transaction, err := NewTransaction(runner)
 	if err != nil {
