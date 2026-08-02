@@ -18,11 +18,11 @@ func TestBuildDeploymentPlanCopiesValidatedExternalMaterial(t *testing.T) {
 	writeCertificateFiles(t, certificatePath, privateKeyPath, material)
 
 	plan, err := BuildDeploymentPlan(DeploymentOptions{
-		Mode:               DeploymentExternalCopy,
-		CertificatePath:    certificatePath,
-		PrivateKeyPath:     privateKeyPath,
-		ServerName:         "panel.example.test",
-		Now:                now,
+		Mode:                DeploymentExternalCopy,
+		CertificatePath:     certificatePath,
+		PrivateKeyPath:      privateKeyPath,
+		ServerName:          "panel.example.test",
+		Now:                 now,
 		HTTPPort80Available: true,
 	})
 	if err != nil {
@@ -52,11 +52,11 @@ func TestBuildDeploymentPlanReferencesValidatedExternalMaterial(t *testing.T) {
 	writeCertificateFiles(t, certificatePath, privateKeyPath, material)
 
 	plan, err := BuildDeploymentPlan(DeploymentOptions{
-		Mode:               DeploymentExternalReference,
-		CertificatePath:    certificatePath,
-		PrivateKeyPath:     privateKeyPath,
-		ServerName:         "panel.example.test",
-		Now:                now,
+		Mode:                DeploymentExternalReference,
+		CertificatePath:     certificatePath,
+		PrivateKeyPath:      privateKeyPath,
+		ServerName:          "panel.example.test",
+		Now:                 now,
 		HTTPPort80Available: true,
 	})
 	if err != nil {
@@ -73,11 +73,11 @@ func TestBuildDeploymentPlanReferencesValidatedExternalMaterial(t *testing.T) {
 func TestBuildDeploymentPlanDefinesSafeSelfSignedAndACMEPolicies(t *testing.T) {
 	now := time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC)
 	selfSigned, err := BuildDeploymentPlan(DeploymentOptions{
-		Mode:               DeploymentSelfSigned,
-		ServerName:         "panel.example.test",
-		IPAddresses:        []netip.Addr{netip.MustParseAddr("2001:db8::20")},
-		Now:                now,
-		Entropy:            rand.Reader,
+		Mode:                DeploymentSelfSigned,
+		ServerName:          "panel.example.test",
+		IPAddresses:         []netip.Addr{netip.MustParseAddr("2001:db8::20")},
+		Now:                 now,
+		Entropy:             rand.Reader,
 		HTTPPort80Available: true,
 	})
 	if err != nil {
@@ -111,11 +111,11 @@ func TestBuildDeploymentPlanDefinesSafeSelfSignedAndACMEPolicies(t *testing.T) {
 func TestBuildDeploymentPlanRejectsUnsafeInputs(t *testing.T) {
 	now := time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC)
 	tests := map[string]DeploymentOptions{
-		"unknown mode":       {Mode: "manual", Now: now},
-		"custom project root": {Mode: DeploymentSelfSigned, ProjectRoot: "/tmp/project", ServerName: "panel.example.test", Now: now, Entropy: rand.Reader},
-		"ACME missing domain": {Mode: DeploymentACMEHTTP01, Now: now, HTTPPort80Available: true},
-		"ACME port occupied":  {Mode: DeploymentACMEHTTP01, ServerName: "panel.example.test", Now: now},
-		"invalid ACME email":  {Mode: DeploymentACMEHTTP01, ServerName: "panel.example.test", Email: "not-an-email", Now: now, HTTPPort80Available: true},
+		"unknown mode":         {Mode: "manual", Now: now},
+		"custom project root":  {Mode: DeploymentSelfSigned, ProjectRoot: "/tmp/project", ServerName: "panel.example.test", Now: now, Entropy: rand.Reader},
+		"ACME missing domain":  {Mode: DeploymentACMEHTTP01, Now: now, HTTPPort80Available: true},
+		"ACME port occupied":   {Mode: DeploymentACMEHTTP01, ServerName: "panel.example.test", Now: now},
+		"invalid ACME email":   {Mode: DeploymentACMEHTTP01, ServerName: "panel.example.test", Email: "not-an-email", Now: now, HTTPPort80Available: true},
 		"external missing key": {Mode: DeploymentExternalReference, CertificatePath: "/missing.crt", PrivateKeyPath: "/missing.key", ServerName: "panel.example.test", Now: now},
 	}
 	for name, options := range tests {
