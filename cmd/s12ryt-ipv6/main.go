@@ -89,9 +89,10 @@ type runtimeOptions struct {
 }
 
 type application struct {
-	address string
-	handler http.Handler
-	runtime managedRuntime
+	address   string
+	addresses []string
+	handler   http.Handler
+	runtime   managedRuntime
 }
 
 type initializationOptions struct {
@@ -793,10 +794,19 @@ func loadApplication(options runtimeOptions) (application, error) {
 		NetworkManager:       networkManager,
 		ACMEChallengeChecker: acmeChallengeChecker,
 	})
+	addresses := []string{fmt.Sprintf("[::]:%d", config.Panel.Port)}
+	if config.Panel.ListenIPv6 != "" {
+		port := strconv.Itoa(config.Panel.Port)
+		addresses = []string{
+			net.JoinHostPort("0.0.0.0", port),
+			net.JoinHostPort(config.Panel.ListenIPv6, port),
+		}
+	}
 	return application{
-		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
-		handler: server.Handler(),
-		runtime: runtime,
+		address:   addresses[0],
+		addresses: addresses,
+		handler:   server.Handler(),
+		runtime:   runtime,
 	}, nil
 }
 
@@ -897,35 +907,80 @@ func runApplication(ctx context.Context, options runtimeOptions) error {
 		}
 		return nil
 	}
-	listener, err := options.Listen("tcp", application.address)
-	if err != nil {
-		return errors.Join(fmt.Errorf("監聽管理面板 %s：%w", application.address, err), stopRuntime())
+	type runningServer struct {
+		address  string
+		listener net.Listener
+		server   managedHTTPServer
 	}
-	defer listener.Close()
+	type serveOutcome struct {
+		address string
+		err     error
+	}
 
-	server := options.NewHTTPServer(application.address, application.handler)
-	serveResult := make(chan error, 1)
-	go func() {
-		serveResult <- server.Serve(listener)
-	}()
-
-	select {
-	case err := <-serveResult:
-		if err == nil || errors.Is(err, http.ErrServerClosed) {
-			return stopRuntime()
+	running := make([]runningServer, 0, len(application.addresses))
+	closeListeners := func() error {
+		var closeErrors []error
+		for _, item := range running {
+			if err := item.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				closeErrors = append(closeErrors, fmt.Errorf("關閉管理面板監聽器 %s：%w", item.address, err))
+			}
 		}
-		return errors.Join(fmt.Errorf("執行管理面板：%w", err), stopRuntime())
-	case <-ctx.Done():
+		return errors.Join(closeErrors...)
+	}
+	for _, address := range application.addresses {
+		listener, listenErr := options.Listen("tcp", address)
+		if listenErr != nil {
+			return errors.Join(fmt.Errorf("監聽管理面板 %s：%w", address, listenErr), closeListeners(), stopRuntime())
+		}
+		server := options.NewHTTPServer(address, application.handler)
+		if server == nil {
+			running = append(running, runningServer{address: address, listener: listener})
+			return errors.Join(fmt.Errorf("建立管理面板伺服器 %s：伺服器不可為空", address), closeListeners(), stopRuntime())
+		}
+		running = append(running, runningServer{address: address, listener: listener, server: server})
+	}
+
+	serveResults := make(chan serveOutcome, len(running))
+	for _, item := range running {
+		go func(item runningServer) {
+			serveResults <- serveOutcome{address: item.address, err: item.server.Serve(item.listener)}
+		}(item)
+	}
+
+	shutdownServers := func() error {
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			return errors.Join(fmt.Errorf("關閉管理面板：%w", err), stopRuntime())
+		var shutdownErrors []error
+		for _, item := range running {
+			if err := item.server.Shutdown(shutdownContext); err != nil {
+				shutdownErrors = append(shutdownErrors, fmt.Errorf("關閉管理面板 %s：%w", item.address, err))
+			}
 		}
-		err := <-serveResult
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return errors.Join(fmt.Errorf("管理面板關閉後回傳錯誤：%w", err), stopRuntime())
+		if err := closeListeners(); err != nil {
+			shutdownErrors = append(shutdownErrors, err)
 		}
-		return stopRuntime()
+		return errors.Join(shutdownErrors...)
+	}
+	collectServeResults := func(count int) error {
+		var serveErrors []error
+		for range count {
+			outcome := <-serveResults
+			if outcome.err != nil && !errors.Is(outcome.err, http.ErrServerClosed) {
+				serveErrors = append(serveErrors, fmt.Errorf("管理面板 %s 關閉後回傳錯誤：%w", outcome.address, outcome.err))
+			}
+		}
+		return errors.Join(serveErrors...)
+	}
+
+	select {
+	case outcome := <-serveResults:
+		var serveErr error
+		if outcome.err != nil && !errors.Is(outcome.err, http.ErrServerClosed) {
+			serveErr = fmt.Errorf("執行管理面板 %s：%w", outcome.address, outcome.err)
+		}
+		return errors.Join(serveErr, shutdownServers(), collectServeResults(len(running)-1), stopRuntime())
+	case <-ctx.Done():
+		return errors.Join(shutdownServers(), collectServeResults(len(running)), stopRuntime())
 	}
 }
 
