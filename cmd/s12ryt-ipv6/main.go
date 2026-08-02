@@ -911,7 +911,7 @@ func loadApplication(options runtimeOptions) (application, error) {
 		RemoteManager:        nodeManager,
 		NetworkManager:       networkManager,
 		ACMEChallengeChecker: acmeChallengeChecker,
-		ShareService:          shareService,
+		ShareService:         shareService,
 	})
 	addresses := []string{fmt.Sprintf("[::]:%d", config.Panel.Port)}
 	if config.Panel.ListenIPv6 != "" {
