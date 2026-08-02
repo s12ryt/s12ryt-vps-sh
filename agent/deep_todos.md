@@ -63,11 +63,12 @@
 
 - [x] 盤點既有 Go 內嵌頁面、八個 static modal、Playwright 桌面/手機契約與 API/安全邊界。
 - [x] 完成設計系統調研並確認深色 NOC、平衡密度、Desktop 側欄、Mobile 分頁、五工作區 URL hash 與完整操作優化。
-- [ ] TDD：深色 NOC、五工作區 tab/tabpanel、hash 導覽與 desktop/mobile 響應式。
-- [ ] TDD：HTTP mutation loading/disabled、防重複提交、成功通知、欄位錯誤與危險操作層級。
-- [ ] TDD：skip link、focus-visible、modal 初始焦點/焦點鎖定/返回與完整鍵盤操作。
-- [ ] 執行 Playwright desktop/mobile、Go/Bash、文件、cross-build、資源與 10 發行版完整回歸及品質審查。
-- [ ] 更新主腳本與 README 至 `v1.1.1`，建立並驗證正式 Release，保留既有 Releases。
+- [x] TDD：深色 NOC、五工作區 tab/tabpanel、hash 導覽與 desktop/mobile 響應式（RED `30763826348`、`30764059793`；GREEN `30764482384`）。
+- [x] TDD：HTTP mutation loading/disabled、防重複提交、成功通知、欄位錯誤與危險操作層級（RED `30764686785`；首次 GREEN `30764918793` 揭露分享表單 busy 狀態缺陷；最終 GREEN `30765218346`；欄位錯誤 RED `30766047643`/GREEN `30766286190`）。
+- [x] TDD：skip link、focus-visible、modal 初始焦點/焦點鎖定/返回與完整鍵盤操作（RED `30765436863`；GREEN `30765726727`）。
+- [x] 執行 Playwright desktop/mobile、Go/Bash、文件、cross-build、資源與 10 發行版完整回歸及品質審查（UI 最終 GREEN `30766286190`；v1.1.1 發行候選 GREEN `30766839172`）。
+- [x] 更新主腳本、IPv6 helper、瀏覽器測試套件與 README 至 `v1.1.1`（版本/文件 RED `30766661023`；GREEN `30766839172`）。
+- [ ] 建立並驗證正式 `v1.1.1` Release，保留既有 Releases。
 
 ## 驗收依據
 
