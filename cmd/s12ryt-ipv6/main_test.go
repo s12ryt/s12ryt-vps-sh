@@ -394,6 +394,42 @@ func TestRunHealthURLCommandPrintsLoopbackEndpointOnly(t *testing.T) {
 	}
 }
 
+func TestRunCleanupSystemCommandDelegatesToIntegrationCleaner(t *testing.T) {
+	contextKey := struct{}{}
+	ctx := context.WithValue(context.Background(), contextKey, "cleanup")
+	cleaner := &stubIntegrationCleaner{}
+	var output bytes.Buffer
+
+	err := runCommand([]string{"cleanup-system"}, commandOptions{
+		Context:            ctx,
+		Output:             &output,
+		IntegrationCleaner: cleaner,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(cleanup-system) error = %v", err)
+	}
+	if cleaner.calls != 1 || cleaner.contextValue != "cleanup" {
+		t.Fatalf("cleaner calls = %d, context value = %q", cleaner.calls, cleaner.contextValue)
+	}
+	if output.String() != "專案網路整合狀態已清理。\n" {
+		t.Fatalf("cleanup output = %q", output.String())
+	}
+}
+
+func TestRunCleanupSystemCommandPreservesCleanupError(t *testing.T) {
+	sentinel := errors.New("cleanup failed")
+	cleaner := &stubIntegrationCleaner{err: sentinel}
+
+	err := runCommand([]string{"cleanup-system"}, commandOptions{
+		Context:            context.Background(),
+		Output:             &bytes.Buffer{},
+		IntegrationCleaner: cleaner,
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("runCommand(cleanup-system) error = %v, want sentinel", err)
+	}
+}
+
 func TestLoadApplicationRejectsUnprotectedPasswordHash(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o644)
 	_, err := loadApplication(runtimeOptions{
@@ -691,6 +727,20 @@ type stubRuntime struct {
 	reloads      int
 	healthChecks int
 	stops        int
+}
+
+type stubIntegrationCleaner struct {
+	calls        int
+	contextValue string
+	err          error
+}
+
+func (cleaner *stubIntegrationCleaner) Remove(ctx context.Context) error {
+	cleaner.calls++
+	if value, ok := ctx.Value(struct{}{}).(string); ok {
+		cleaner.contextValue = value
+	}
+	return cleaner.err
 }
 
 func (runtime *stubRuntime) Start() error {
