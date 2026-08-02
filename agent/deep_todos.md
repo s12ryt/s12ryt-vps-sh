@@ -70,6 +70,16 @@
 - [x] 更新主腳本、IPv6 helper、瀏覽器測試套件與 README 至 `v1.1.1`（版本/文件 RED `30766661023`；GREEN `30766839172`）。
 - [x] 建立並驗證正式 `v1.1.1` Release，保留既有 Releases（tag commit `01d53b56e8eb55f117e98cc2c41a8415c1c99027`；發行候選 GREEN run `30767013669`）。
 
+## 目前任務：v1.1.2 Web 操作可靠性修復
+
+- [x] 稽核 v1.1.1 UI 實作與測試覆蓋，定位動態 mutation 按鈕、策略多請求 busy 生命週期及 modal 背景隔離缺口。
+- [x] 經使用者授權依 `agent/question.md` 既有契約自主疊代、延續 GitHub-only 驗收並完整發布 `v1.1.2`；已凍結增量契約。
+- [ ] TDD：按鈕級 mutation loading/disabled/`aria-busy`、防重複與取消不誤報。
+- [ ] TDD：modal 背景 `inert`、同時單一開啟、切換與焦點返回。
+- [ ] 更新主腳本、IPv6 helper、package metadata 與 README 至 `v1.1.2`。
+- [ ] 執行完整 GitHub Actions 回歸、品質審查與發行候選驗證。
+- [ ] 建立並驗證正式 `v1.1.2` Release，保留既有 Releases。
+
 ## 驗收依據
 
 - 唯一需求契約：`agent/question.md`。

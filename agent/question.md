@@ -1,6 +1,6 @@
 # 已確認需求契約
 
-最後確認日期：2026-08-02
+最後確認日期：2026-08-03
 
 ## 目標與交付物
 
@@ -362,3 +362,28 @@
 - Playwright desktop/mobile 驗證：五工作區切換、hash 直接進入與返回/前進、一次只顯示一個 panel、沒有水平溢出或重疊、mutation 防重複提交、loading/成功/錯誤回饋、modal 初始焦點/焦點鎖定/Escape/backdrop/焦點返回、完整鍵盤流程及無外部請求。
 - 維持既有 Playwright 登入、CSRF、分享揭露/QR/copy/清理、安全 header、96 項 Bats、Go format/test/vet、ShellCheck、10 發行版 smoke、amd64/arm64 cross-build/checksum及 64 IPv6 + 28 nodes、60 秒、100 MiB idle RSS 門檻。
 - 所有程式驗證仍只使用 GitHub-hosted Actions；不得使用本機 WSL、Git Bash、本機 Bash/Bats/ShellCheck/Go test 作為證據。
+
+## v1.1.2 Web 操作可靠性修復契約（2026-08-03）
+
+本節為 `v1.1.1` 完整交付後，使用者授權依本檔既有契約自主疊代並完整發布 `v1.1.2` 所形成的增量契約。此輪只修復既有 v1.1.1 操作狀態與 modal 隔離承諾未完整覆蓋之處，不新增業務功能，不變更 HTTP API、狀態 schema、認證、安全、CLI、sing-box 或系統整合公開契約。
+
+### Mutation 操作狀態
+
+- 策略設定「驗證 -> 差異確認 -> 套用」必須以一次完整使用者操作為 busy 生命週期；從開始驗證到套用成功或任一步驟失敗前，觸發按鈕維持 disabled 與 `aria-busy="true"`，不得在驗證請求結束後提前恢復。
+- 動態節點刪除、遠端出口啟用/停用與刪除按鈕必須納入相同的一致操作狀態：請求期間按鈕 disabled、`aria-busy="true"`、阻止重複 mutation，完成後恢復可操作。
+- 使用者在瀏覽器確認對話框選擇取消，不得送出 HTTP mutation、不得顯示錯誤通知，控制項保持可操作；請求成功與失敗仍沿用既有不洩密的 live status 與錯誤語意。
+- 操作狀態 helper 必須同時處理 scope 本身為按鈕及 scope 內的控制項，並在成功、失敗或同步例外後可靠清理；不得以弱化既有分享、表單或 CSRF 測試換取通過。
+
+### Modal 隔離與單一開啟
+
+- 開啟任一 modal 時，若另一 modal 已開啟，必須先依既有關閉流程關閉舊 modal，再開啟目標 modal；任何時刻最多一個 dialog 可見且 `aria-hidden="false"`。
+- Modal 開啟期間，dashboard 的主要背景容器必須套用原生 `inert`，使背景控制項無法被滑鼠、觸控或鍵盤聚焦；關閉最後一個 modal 後必須移除 `inert`。
+- 切換 modal 時不得短暫把焦點返回舊觸發器；最終關閉時焦點回到目前 modal 的開啟按鈕。既有初始焦點、Tab/Shift+Tab 鎖定、Escape、static backdrop、明確關閉按鈕與敏感資料清理契約維持不變。
+
+### 版本、TDD 與發布驗收
+
+- 主腳本、IPv6 helper、Playwright package metadata 與 README 同步更新為 `1.1.2`；保留既有 Releases，建立非 draft、非 prerelease 的正式 `v1.1.2` Release。
+- 正式程式修改前先新增 Go HTML characterization 與 Playwright RED 契約；RED 必須因缺少按鈕級完整 busy 生命週期、背景 `inert` 或單一 modal 行為而失敗，不得因 fixture、格式或環境錯誤失敗。
+- Playwright desktop/mobile 至少驗證策略多請求操作、動態 mutation 按鈕防重複、取消不誤報，以及 modal 背景不可互動、單一開啟、焦點鎖定與返回；Go/`httptest` 驗證必要腳本與 DOM 契約標記。
+- 維持既有 Go format/test/vet、Bash 語法、ShellCheck、96 項 Bats、README/LICENSE、Playwright、amd64/arm64 cross-build/checksum、64 IPv6 + 28 nodes 60 秒 100 MiB idle RSS 門檻及 10 發行版 x86_64 smoke，不得刪除、略過或弱化既有斷言。
+- RED、GREEN、完整回歸、發行候選與 Release 驗證全部只使用 GitHub-hosted Actions；不得在本機執行 Go test、Bash、Bats、Playwright 或 ShellCheck作為驗收證據。

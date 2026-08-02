@@ -146,3 +146,6 @@
 - 從候選 run 的 `ipv6-release-assets` 下載 `s12ryt-ipv6-linux-amd64`、`s12ryt-ipv6-linux-arm64` 與 `SHA256SUMS`，以 Windows `Get-FileHash` 核對成功：amd64 為 `25a6e4521ec0f8c03d9d04fc64706c8457427ea4b1e7db6b56396e1010223da2`，arm64 為 `c2fca864767000d9540fdfe2520d2b6eed74b2bc8d533c6a2dcbc02ccd889ffd`。
 - 建立正式 `v1.1.1` GitHub Release（https://github.com/s12ryt/s12ryt-vps-sh/releases/tag/v1.1.1），保留既有 Releases；tag 精確指向上述全綠提交，latest Release API 回傳 `v1.1.1`，且不是 draft 或 prerelease。三個資產均為 uploaded，Release API digest 與本機 SHA-256／`SHA256SUMS` 一致。
 - 驗證 tag 內 `s12ryt.sh` 版本為 `1.1.1`、`install-ipv6.sh` 的 `IPV6_PROJECT_VERSION` 為 `1.1.1`、`install-proot.sh` 可讀；README 含 v1.1.1、深色 NOC、五工作區 hash、操作狀態、欄位錯誤與鍵盤/modal 焦點契約。
+- 使用者選擇開始 v1.1.2 疊代，授權依 `agent/question.md` 既有契約自行決策、延續全部 GitHub-hosted 驗收並完整發布正式 Release。
+- 稽核確認 v1.1.1 的表單提交具一致操作狀態，但策略多請求流程會在驗證後提前解除 busy，動態節點刪除與遠端啟停/刪除未納入按鈕級防重複；modal 雖有焦點鎖定與返回，背景尚未 `inert`，也未強制同時只開一個。
+- 已將 v1.1.2 的最小修復範圍、錯誤與取消語意、modal 隔離、TDD、GitHub-only 驗收及正式發布條件寫入 `agent/question.md`；尚未修改正式程式或測試。
