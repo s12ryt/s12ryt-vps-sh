@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml/badge.svg)](https://github.com/s12ryt/s12ryt-vps-sh/actions/workflows/ci.yml)
 
-版本：`v1.1.0`
+版本：`v1.1.1`
 
 一個跨發行版 VPS 管理工具，提供系統資訊、一般系統升級、網路診斷、PRoot 客體、Supervisor 服務管理、Fanout、Node.js、Python、多 IPv6 出站 Web 管理面板與自我更新。主選單以 Bash 實作；多 IPv6 出站面板使用 Go 單一執行檔與獨立的 sing-box 資料平面。
 
@@ -18,10 +18,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s1
 
 這條命令會直接執行可隨時變更的 `main` 分支內容，適合快速試用，但不具版本可重現性，執行前應先審閱腳本。process substitution 是暫時來源，因此腳本會再下載一次完整腳本，通過 Bash 語法與版本驗證後才建立穩定副本及 `s`。若第二次下載或驗證失敗，當次選單仍可使用，但會警告「僅臨時執行；s 可能不存在或仍是舊版」。
 
-### 固定 `v1.1.0` 實體暫存檔
+### 固定 `v1.1.1` 實體暫存檔
 
 ```bash
-(tmp="$(mktemp)" && trap 'rm -f -- "$tmp"' EXIT && curl -fsSL --connect-timeout 5 --max-time 30 https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.0/s12ryt.sh -o "$tmp" && bash -n "$tmp" && bash "$tmp")
+(tmp="$(mktemp)" && trap 'rm -f -- "$tmp"' EXIT && curl -fsSL --connect-timeout 5 --max-time 30 https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.1/s12ryt.sh -o "$tmp" && bash -n "$tmp" && bash "$tmp")
 ```
 
 此命令先下載可重現的固定版本至實體暫存檔，通過 `bash -n` 後才執行，並於 subshell 結束時自動清理。需要同時下載 PRoot 或多 IPv6 helper 時，請使用下方完整安裝流程。
@@ -36,13 +36,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/main/s1
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf -- "$tmp_dir"' EXIT
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.0/s12ryt.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.1/s12ryt.sh \
     -o "$tmp_dir/s12ryt.sh"
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.0/install-proot.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.1/install-proot.sh \
     -o "$tmp_dir/install-proot.sh"
   curl -fsSL --connect-timeout 5 --max-time 30 \
-    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.0/install-ipv6.sh \
+    https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.1/install-ipv6.sh \
     -o "$tmp_dir/install-ipv6.sh"
   bash -n "$tmp_dir/s12ryt.sh" "$tmp_dir/install-proot.sh" "$tmp_dir/install-ipv6.sh"
   bash "$tmp_dir/s12ryt.sh"
@@ -179,6 +179,16 @@ Web 面板依需求使用公開 HTTP，預設埠 `34456`，同時提供 IPv4 與
 - 登出、重設管理密碼或服務重啟會撤銷記憶體內 session；公開 HTTP 下 cookie 的 Secure 必須為 false。
 - UI 無外部 CDN，modal 點擊背景不會關閉；只能按明確按鈕或 Escape 關閉，敏感 modal 關閉時會清除內容與 QR 圖片。
 
+### v1.1.1 Web UI/UX
+
+v1.1.1 將管理頁整理為深色 NOC 控制台，在不變更 API、設定 schema、安全規則、CLI 或 sing-box 行為的前提下，改善資訊架構與操作回饋。所有樣式與互動仍嵌入 Go binary，不使用 CDN、外部字型或執行期 Web 資產。
+
+- Desktop 使用固定側欄，手機使用可水平捲動的分頁；五個工作區分別為策略、節點、遠端出口、網路與分享。
+- 工作區使用 `#strategy`、`#nodes`、`#remotes`、`#network`、`#shares`，支援重新整理、上一頁／下一頁與深層連結；畫面一次只顯示一個工作區。
+- 狀態變更會顯示處理中、成功或失敗訊息，操作期間停用相關控制並防止重複提交；錯誤後會恢復控制，允許修正後重試。
+- 節點 listener 的本機驗證會以欄位旁錯誤、`aria-invalid` 與可恢復焦點呈現；刪除節點及遠端出口使用一致的危險操作層級與不可逆提示。
+- 鍵盤使用者可透過 skip link、可見的 `focus-visible` 樣式與工作區方向鍵操作。靜態 modal 具初始焦點、焦點鎖定、Escape／明確按鈕關閉及焦點返回，點擊背景仍不會自動關閉。
+
 ### 協議、TLS 與分享
 
 本機入站支援 VLESS、VMess、Hysteria2、TUIC、SOCKS5、AnyTLS、Shadowsocks。每個節點使用獨立隨機認證，預設從 `20000-49999` 自動挑選同時可用的 TCP/UDP 埠，也可手動指定。
@@ -216,7 +226,7 @@ Web 導覽依序為「出口模式 > 拓撲 > 協議」，不是強制 wizard：
 
 ### Release 資產
 
-v1.1.0 Release 應包含：
+v1.1.1 Release 應包含：
 
 ```text
 s12ryt-ipv6-linux-amd64
