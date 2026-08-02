@@ -11,7 +11,7 @@ setup() {
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"s12ryt 的 VPS 腳本"* ]]
-    [[ "$output" == *"版本: v1.0.3"* ]]
+    [[ "$output" == *"版本: v1.1.0"* ]]
     [[ "$output" == *"Copyright (C) 2026 s12ryt"* ]]
     [[ "$output" == *"GPL-3.0-only"* ]]
     [[ "$output" == *"不提供任何擔保"* ]]
@@ -46,7 +46,7 @@ setup() {
 
     run bash -c 'printf "0\n" | "$HOME/.local/bin/s"'
     [ "$status" -eq 0 ]
-    [[ "$output" == *"版本: v1.0.3"* ]]
+    [[ "$output" == *"版本: v1.1.0"* ]]
 }
 
 @test "選項 9 10 11 呼叫重新編號後的功能" {
