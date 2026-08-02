@@ -20,6 +20,7 @@ var safeIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 type Input struct {
 	LocalNodes    []LocalNode
 	RemoteSecrets []string
+	RoutingMode   domain.RoutingMode
 }
 
 type LocalNode struct {
@@ -49,10 +50,13 @@ type TransportOptions struct {
 }
 
 type Artifact struct {
-	NodeID     string
-	URI        string
-	QRPayload  string
-	ClientJSON []byte
+	NodeID              string
+	URI                 string
+	QRPayload           string
+	ClientJSON          []byte
+	FullClientJSON      []byte
+	FullClientBase64    string
+	SplitRoutingWarning string
 }
 
 type Bundle struct {
@@ -82,6 +86,15 @@ func GenerateBundle(input Input) (Bundle, error) {
 			return Bundle{}, fmt.Errorf("node %q client JSON: %w", node.ID, err)
 		}
 		artifact := Artifact{NodeID: node.ID, URI: uri, QRPayload: uri, ClientJSON: clientJSON}
+		if input.RoutingMode == domain.RoutingModeClientIPv4 {
+			fullClientJSON, fullErr := clientSplitConfig(node)
+			if fullErr != nil {
+				return Bundle{}, fmt.Errorf("node %q split client JSON: %w", node.ID, fullErr)
+			}
+			artifact.FullClientJSON = fullClientJSON
+			artifact.FullClientBase64 = base64.StdEncoding.EncodeToString(fullClientJSON)
+			artifact.SplitRoutingWarning = "分享 URI 與 QR Code 只包含單一節點，不包含 IPv4 直連、IPv6 經代理的分流規則；請使用完整客戶端設定。"
+		}
 		bundle.Nodes = append(bundle.Nodes, artifact)
 		if node.Enabled && node.Healthy {
 			subscription = append(subscription, uri)
@@ -189,6 +202,46 @@ func nodeURI(node LocalNode) (string, error) {
 }
 
 func clientConfig(node LocalNode) ([]byte, error) {
+	outbound, err := clientOutbound(node)
+	if err != nil {
+		return nil, err
+	}
+	config := map[string]any{
+		"log":       map[string]any{"level": "warn"},
+		"outbounds": []map[string]any{outbound},
+	}
+	return json.MarshalIndent(config, "", "  ")
+}
+
+func clientSplitConfig(node LocalNode) ([]byte, error) {
+	proxy, err := clientOutbound(node)
+	if err != nil {
+		return nil, err
+	}
+	direct := map[string]any{"type": "direct", "tag": "direct"}
+	config := map[string]any{
+		"log": map[string]any{"level": "warn"},
+		"inbounds": []map[string]any{{
+			"type":         "tun",
+			"tag":          "tun-in",
+			"address":      []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
+			"auto_route":   true,
+			"strict_route": true,
+		}},
+		"outbounds": []map[string]any{proxy, direct},
+		"route": map[string]any{
+			"auto_detect_interface": true,
+			"final":                 "proxy",
+			"rules": []map[string]any{
+				{"ip_version": 4, "action": "route", "outbound": "direct"},
+				{"ip_version": 6, "action": "route", "outbound": "proxy"},
+			},
+		},
+	}
+	return json.MarshalIndent(config, "", "  ")
+}
+
+func clientOutbound(node LocalNode) (map[string]any, error) {
 	outbound := map[string]any{
 		"type":        outboundType(node.Protocol),
 		"tag":         "proxy",
@@ -224,11 +277,7 @@ func clientConfig(node LocalNode) ([]byte, error) {
 		}
 		outbound["transport"] = transport
 	}
-	config := map[string]any{
-		"log":       map[string]any{"level": "warn"},
-		"outbounds": []map[string]any{outbound},
-	}
-	return json.MarshalIndent(config, "", "  ")
+	return outbound, nil
 }
 
 func outboundType(protocol domain.Protocol) string {
