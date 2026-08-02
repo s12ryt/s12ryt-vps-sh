@@ -249,6 +249,8 @@ systemd_unit_content() {
 Description=s12ryt IPv6 outbound panel
 After=network-online.target
 Wants=network-online.target
+Requires=s12ryt-ipv6-network.service
+After=s12ryt-ipv6-network.service
 
 [Service]
 Type=simple
@@ -256,6 +258,32 @@ User=root
 ExecStart=${project_root}/bin/s12ryt-ipv6 serve
 Restart=on-failure
 RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=${project_root}
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+systemd_network_unit_content() {
+    local project_root="$1"
+
+    cat <<EOF
+[Unit]
+Description=s12ryt IPv6 network integration restore
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=${project_root}/bin/s12ryt-ipv6 restore-system
+RemainAfterExit=yes
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -281,6 +309,24 @@ command_background=true
 pidfile=/run/s12ryt-ipv6.pid
 output_log=/var/log/s12ryt-ipv6/panel.log
 error_log=/var/log/s12ryt-ipv6/panel.log
+
+depend() {
+    need net
+    need s12ryt-ipv6-network
+    after firewall
+}
+EOF
+}
+
+openrc_network_service_content() {
+    local project_root="$1"
+
+    cat <<EOF
+#!/sbin/openrc-run
+name="s12ryt IPv6 network integration restore"
+description="Restore s12ryt IPv6 addresses, policy routes and firewall rules"
+command="${project_root}/bin/s12ryt-ipv6"
+command_args="restore-system"
 
 depend() {
     need net
@@ -319,7 +365,7 @@ install_verified_ipv6_bundle() {
     local project_root panel_asset singbox_asset archive_entry
     local binary_directory temporary_directory panel_source archive_source
     local panel_temporary singbox_temporary had_state=0
-    local unit_path service_path logrotate_path command_name
+    local unit_path network_unit_path service_path network_service_path logrotate_path command_name
 
     panel_asset="$(panel_asset_name "$architecture")" || return 1
     singbox_asset="$(singbox_asset_name "$architecture")" || return 1
@@ -396,10 +442,15 @@ install_verified_ipv6_bundle() {
 
     if [[ "$init_system" == "systemd" ]]; then
         unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
+        network_unit_path="${S12RYT_SYSTEMD_NETWORK_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6-network.service}"
         if ! write_ipv6_project_file "$unit_path" 0644 "$(systemd_unit_content "$project_root")" ||
+            ! write_ipv6_project_file "$network_unit_path" 0644 "$(systemd_network_unit_content "$project_root")" ||
             ! systemctl daemon-reload ||
+            ! systemctl enable s12ryt-ipv6-network.service ||
             ! systemctl enable --now s12ryt-ipv6.service; then
-            rm -f -- "$unit_path"
+            systemctl disable --now s12ryt-ipv6.service >/dev/null 2>&1 || true
+            systemctl disable --now s12ryt-ipv6-network.service >/dev/null 2>&1 || true
+            rm -f -- "$unit_path" "$network_unit_path"
             systemctl daemon-reload >/dev/null 2>&1 || true
             cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
             printf '錯誤：無法註冊 systemd 服務。\n' >&2
@@ -407,13 +458,20 @@ install_verified_ipv6_bundle() {
         fi
     else
         service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
+        network_service_path="${S12RYT_OPENRC_NETWORK_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6-network}"
         logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
         if ! write_ipv6_project_file "$service_path" 0755 "$(openrc_service_content "$project_root")" ||
+            ! write_ipv6_project_file "$network_service_path" 0755 "$(openrc_network_service_content "$project_root")" ||
             ! write_ipv6_project_file "$logrotate_path" 0644 "$(openrc_logrotate_content)" ||
+            ! rc-update add s12ryt-ipv6-network default ||
             ! rc-update add s12ryt-ipv6 default ||
+            ! rc-service s12ryt-ipv6-network start ||
             ! rc-service s12ryt-ipv6 start; then
+            rc-service s12ryt-ipv6 stop >/dev/null 2>&1 || true
+            rc-service s12ryt-ipv6-network stop >/dev/null 2>&1 || true
             rc-update del s12ryt-ipv6 default >/dev/null 2>&1 || true
-            rm -f -- "$service_path" "$logrotate_path"
+            rc-update del s12ryt-ipv6-network default >/dev/null 2>&1 || true
+            rm -f -- "$service_path" "$network_service_path" "$logrotate_path"
             cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
             printf '錯誤：無法註冊 OpenRC 服務。\n' >&2
             return 1
