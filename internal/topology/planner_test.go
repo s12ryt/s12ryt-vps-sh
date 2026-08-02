@@ -188,7 +188,7 @@ func TestPlanRejectsContradictoryOrUnsafeTopologyInputs(t *testing.T) {
 		{
 			name: "single rotating topology requires two candidates",
 			input: Input{
-				Config: topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
+				Config:             topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
 				OutboundCandidates: []OutboundCandidate{direct},
 			},
 		},
@@ -222,7 +222,7 @@ func TestPlanRejectsContradictoryOrUnsafeTopologyInputs(t *testing.T) {
 		{
 			name: "unknown outbound kind",
 			input: Input{
-				Config:             topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
+				Config: topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
 				OutboundCandidates: []OutboundCandidate{
 					{Tag: "candidate-a", Kind: "unknown"},
 					remote,
