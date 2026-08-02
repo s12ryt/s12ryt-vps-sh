@@ -317,3 +317,48 @@
 - 嚴格 TDD：Go domain/config/auth/HTTP 使用 unit test 與 `httptest`；Bash 安裝/更新/系統操作全部 mock；不得在 CI 真改 host IPv6、route、防火牆、服務或真實 VPS。
 - Playwright 在 GitHub-hosted runner 驗證桌面與手機登入、三頁導覽、modal backdrop 不關閉、Escape/按鈕關閉、CSRF/錯誤狀態與響應式無重疊；前端不得使用外部 CDN。
 - GitHub Actions 執行 Go test、go vet、格式檢查、Bats、ShellCheck、Bash 語法、Playwright、x86_64/arm64 cross-build、checksum、資源基準與既有 10 發行版 x86_64 容器 smoke。arm64 只宣稱 cross-build，不宣稱真實 arm64 VPS 驗證。
+
+## v1.1.1 Web UI/UX 自主升級契約（2026-08-03）
+
+本節為 `v1.1.0` 完整交付後，使用者要求「自主疊代升級，進行 Web 頁面以及操作優化」形成的增量契約。此輪只改善資訊架構、視覺、操作回饋、響應式與無障礙；不得新增或移除業務功能，不得改變既有 HTTP API、狀態 schema、認證、安全、CLI、sing-box 或系統整合公開契約。
+
+### 版本與設計方向
+
+- 發布正式 `v1.1.1` Release，保留 `v1.1.0` 與更早版本；主腳本、README、面板 Release 資產與自我更新版本同步為 `1.1.1`。
+- 採深色 NOC 控制台視覺，維持平衡資訊密度：深石墨背景、清楚的中性色層級、綠色正常狀態、琥珀色警告與紅色危險操作；不得使用單一色系、裝飾性漸層光球或行銷式大卡片。
+- 維持無外部 CDN、無外部字體與無外部前端 runtime；介面仍嵌入單一 Go binary。繁中使用本機 CJK 字體 fallback，技術值使用等寬字體，不為純視覺增加大型字體資產或框架。
+- 登入與 dashboard 都必須保留公開 HTTP 風險警告；此輪不得降低 session、CSRF、client-IP binding、登入限速、秘密遮罩或五分鐘重新驗證強度。
+
+### 五工作區資訊架構
+
+- Desktop 使用緊湊左側導覽，Mobile 使用可水平捲動的頂部分頁；分成五個工作區：
+  - `策略`：出口模式、拓撲與協議設定入口。
+  - `節點`：本機入站節點及敏感憑證管理。
+  - `遠端出口`：代理匯入、啟停、刪除及 IPv4 fallback。
+  - `網路`：IPv6 地址、地址池、policy route 與防火牆整合。
+  - `分享`：受保護 URI、JSON、Base64 與 QR 分享。
+- 一次只顯示一個工作區，不保留所有工作區同時堆疊的長頁。Desktop 側欄與 Mobile 分頁操作相同的 tablist/tab/tabpanel 語意。
+- 使用 URL hash 保存工作區：`#strategy`、`#nodes`、`#remotes`、`#network`、`#shares`。初次或未知 hash 回到 `#strategy`；重新整理、瀏覽器返回/前進與直接連結必須維持正確工作區，且不得把秘密寫進 URL。
+- Desktop 表格維持便於比較的平衡密度；Mobile 不得依賴整頁水平捲動，主要資料改為可掃描的單欄資訊列或受控表格容器。最長標籤、IPv6、URI 與操作按鈕不得互相覆蓋或撐破 viewport。
+
+### 完整操作優化
+
+- 所有會送出 HTTP mutation 的表單與按鈕，在請求期間提供一致 loading/disabled/`aria-busy` 狀態並阻止重複提交；請求結束後必須可再次操作。
+- 成功結果以不打斷流程的 `aria-live` 狀態通知顯示；錯誤保留既有安全訊息，同時在相關表單或欄位旁提供可恢復、可聚焦的提示。不得把後端秘密、完整 URI、token、密碼或內部命令錯誤寫入通知。
+- 高風險的刪除、網路套用、秘密揭露等操作維持既有二次確認、安全 header 與伺服器驗證；視覺上必須與一般操作有明確層級差異。
+- 表單欄位使用正確 label、autocomplete、inputmode、min/max/pattern 與必要狀態；錯誤後不得清掉可安全保留的使用者輸入。
+- 增加頁面 skip link、全域可見 `:focus-visible`、合理 heading/landmark、狀態文字及鍵盤操作；文字與控制項對比至少符合 WCAG AA。
+
+### Modal 與鍵盤契約
+
+- 既有 modal 仍由按鈕開啟，點 backdrop 不關閉；Escape 與明確關閉、取消或完成按鈕可關閉，敏感 modal 關閉時仍清除秘密。
+- Modal 開啟後焦點移到第一個合理控制項或 dialog 標題，Tab/Shift+Tab 焦點鎖定於目前 modal；關閉後焦點回到原開啟按鈕。
+- Modal 必須具有 `role="dialog"`、`aria-modal="true"`、可解析的標題關聯與背景不可互動狀態；同一時間只允許一個 modal 處於開啟狀態。
+
+### v1.1.1 TDD 與驗收
+
+- 正式 UI 修改前先補 Go HTML characterization 與 Playwright RED 契約；RED 必須因缺少深色 NOC、五工作區 hash 導覽、操作狀態或焦點行為而失敗，不得因 fixture、格式或環境錯誤失敗。
+- Go/`httptest` 驗證必要 landmarks、tab/tabpanel、hash targets、skip link、dialog ARIA、busy/live/error markers、無外部 CDN，並確保登入、安全 header、API 與秘密遮罩契約不退化。
+- Playwright desktop/mobile 驗證：五工作區切換、hash 直接進入與返回/前進、一次只顯示一個 panel、沒有水平溢出或重疊、mutation 防重複提交、loading/成功/錯誤回饋、modal 初始焦點/焦點鎖定/Escape/backdrop/焦點返回、完整鍵盤流程及無外部請求。
+- 維持既有 Playwright 登入、CSRF、分享揭露/QR/copy/清理、安全 header、96 項 Bats、Go format/test/vet、ShellCheck、10 發行版 smoke、amd64/arm64 cross-build/checksum及 64 IPv6 + 28 nodes、60 秒、100 MiB idle RSS 門檻。
+- 所有程式驗證仍只使用 GitHub-hosted Actions；不得使用本機 WSL、Git Bash、本機 Bash/Bats/ShellCheck/Go test 作為證據。
