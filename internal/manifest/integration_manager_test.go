@@ -155,11 +155,11 @@ func TestIntegrationManagerRejectsUnsafeInputsBeforeSideEffects(t *testing.T) {
 }
 
 type recordingManifestRepository struct {
-	current  *Manifest
-	loadErr  error
-	saveErr  error
+	current   *Manifest
+	loadErr   error
+	saveErr   error
 	deleteErr error
-	events   *[]string
+	events    *[]string
 }
 
 func (repository *recordingManifestRepository) Load() (Manifest, error) {
