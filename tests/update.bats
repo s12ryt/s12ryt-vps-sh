@@ -41,7 +41,7 @@ if [[ "$url" == *'/releases/latest' ]]; then
     if [[ "${MOCK_UPDATE_MODE:-success}" == "api-fail" ]]; then
         exit 22
     fi
-    printf '{"tag_name":"%s"}\n' "${MOCK_RELEASE_TAG:-v1.1.0}" > "$output"
+    printf '{"tag_name":"%s"}\n' "${MOCK_RELEASE_TAG:-v1.2.0}" > "$output"
     exit 0
 fi
 
@@ -56,7 +56,7 @@ case "${MOCK_UPDATE_MODE:-success}" in
         printf '%s\n' '#!/usr/bin/env bash' 'readonly VERSION="1.0.1"' 'printf mismatch' > "$output"
         ;;
     success)
-        printf '%s\n' '#!/usr/bin/env bash' 'readonly VERSION="1.1.0"' 'printf updated-version' > "$output"
+        printf '%s\n' '#!/usr/bin/env bash' 'readonly VERSION="1.2.0"' 'printf updated-version' > "$output"
         ;;
 esac
 EOF
@@ -68,7 +68,7 @@ run_update_function() {
         HOME="$HOME" \
         PATH="$MOCK_BIN:/usr/bin:/bin" \
         MOCK_LOG="$MOCK_LOG" \
-        MOCK_RELEASE_TAG="${MOCK_RELEASE_TAG:-v1.1.0}" \
+        MOCK_RELEASE_TAG="${MOCK_RELEASE_TAG:-v1.2.0}" \
         MOCK_UPDATE_MODE="${MOCK_UPDATE_MODE:-success}" \
         S12RYT_UPDATE_TARGET="$UPDATE_TARGET" \
         S12RYT_SOURCE_ONLY=1 \
@@ -110,10 +110,10 @@ run_update_function() {
     run_update_function check_for_updates
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"已更新至 v1.1.0"* ]]
+    [[ "$output" == *"已更新至 v1.2.0"* ]]
     [ -x "$UPDATE_TARGET" ]
-    grep -Fq 'readonly VERSION="1.1.0"' "$UPDATE_TARGET"
-    grep -Fq 'https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.1.0/s12ryt.sh' "$MOCK_LOG"
+    grep -Fq 'readonly VERSION="1.2.0"' "$UPDATE_TARGET"
+    grep -Fq 'https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v1.2.0/s12ryt.sh' "$MOCK_LOG"
     run find "${UPDATE_TARGET%/*}" -maxdepth 1 -name '.s12ryt-update.*' -print
     [ -z "$output" ]
 }
@@ -136,7 +136,7 @@ run_update_function() {
     [[ "$output" == *"Release tag 格式無效"* ]]
     grep -Fq 'old-version' "$UPDATE_TARGET"
 
-    export MOCK_RELEASE_TAG=v1.1.0
+    export MOCK_RELEASE_TAG=v1.2.0
     cat > "${MOCK_BIN}/mktemp" <<'EOF'
 #!/bin/bash
 exit 1
