@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -21,6 +22,7 @@ var realityShortIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{0,16}$`)
 const (
 	TransportWebSocket = "websocket"
 	TransportGRPC      = "grpc"
+	ACMEDataDirectory  = "/opt/s12ryt-ipv6/tls/acme"
 )
 
 type ServerInput struct {
@@ -53,6 +55,7 @@ type TLSConfig struct {
 	CertificatePath string
 	KeyPath         string
 	Reality         *RealityConfig
+	ACME            *ACMEConfig
 }
 
 type RealityConfig struct {
@@ -60,6 +63,14 @@ type RealityConfig struct {
 	HandshakePort   int
 	PrivateKey      string
 	ShortID         string
+}
+
+type ACMEConfig struct {
+	Domains           []string
+	DataDirectory     string
+	DefaultServerName string
+	Email             string
+	Provider          string
 }
 
 type TransportConfig struct {
@@ -449,6 +460,9 @@ func validateTransport(node InboundNode) error {
 
 func validateTLS(node InboundNode) error {
 	tls := node.TLS
+	if tls.Reality != nil && tls.ACME != nil {
+		return errors.New("Reality and ACME cannot be enabled together")
+	}
 	if tls.Reality != nil {
 		if !tls.Enabled || node.Protocol != domain.ProtocolVLESS || node.Transport.Type != "" {
 			return errors.New("Reality requires VLESS over TCP with TLS enabled")
@@ -465,10 +479,87 @@ func validateTLS(node InboundNode) error {
 		}
 		return nil
 	}
+	if tls.ACME != nil {
+		if !tls.Enabled {
+			return errors.New("ACME requires TLS to be enabled")
+		}
+		if tls.CertificatePath != "" || tls.KeyPath != "" {
+			return errors.New("ACME cannot use certificate and key paths")
+		}
+		if err := validateACMEConfig(*tls.ACME); err != nil {
+			return err
+		}
+		if tls.ServerName == "" || !containsString(tls.ACME.Domains, tls.ServerName) {
+			return errors.New("TLS server name must be one of the ACME domains")
+		}
+		return nil
+	}
 	if tls.Enabled && (tls.CertificatePath == "" || tls.KeyPath == "") {
 		return errors.New("TLS certificate and key paths are required")
 	}
 	return nil
+}
+
+func validateACMEConfig(config ACMEConfig) error {
+	if len(config.Domains) == 0 {
+		return errors.New("ACME requires at least one domain")
+	}
+	seen := make(map[string]struct{}, len(config.Domains))
+	for _, domainName := range config.Domains {
+		if !validACMEDomain(domainName) {
+			return fmt.Errorf("invalid ACME domain %q", domainName)
+		}
+		if _, duplicate := seen[domainName]; duplicate {
+			return fmt.Errorf("duplicate ACME domain %q", domainName)
+		}
+		seen[domainName] = struct{}{}
+	}
+	if config.DataDirectory != ACMEDataDirectory {
+		return fmt.Errorf("ACME data directory must be %s", ACMEDataDirectory)
+	}
+	if !containsString(config.Domains, config.DefaultServerName) {
+		return errors.New("ACME default server name must be one of the ACME domains")
+	}
+	if config.Provider != "letsencrypt" {
+		return errors.New("ACME provider must be letsencrypt")
+	}
+	if config.Email != "" {
+		address, err := mail.ParseAddress(config.Email)
+		if err != nil || address.Address != config.Email {
+			return errors.New("invalid ACME account email")
+		}
+	}
+	return nil
+}
+
+func validACMEDomain(value string) bool {
+	if len(value) < 3 || len(value) > 253 || strings.Contains(value, "..") || !strings.Contains(value, ".") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || !asciiAlphaNumeric(label[0]) || !asciiAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for index := 1; index < len(label)-1; index++ {
+			if !asciiAlphaNumeric(label[index]) && label[index] != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func asciiAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCredential(protocol domain.Protocol, credential Credential) error {
@@ -543,6 +634,19 @@ func buildInbound(node InboundNode, listener netip.Addr) (map[string]any, error)
 				},
 				"private_key": reality.PrivateKey,
 				"short_id":    []string{reality.ShortID},
+			}
+		}
+		if acmeConfig := node.TLS.ACME; acmeConfig != nil {
+			delete(tls, "certificate_path")
+			delete(tls, "key_path")
+			tls["acme"] = map[string]any{
+				"domain":                     append([]string(nil), acmeConfig.Domains...),
+				"data_directory":             acmeConfig.DataDirectory,
+				"default_server_name":        acmeConfig.DefaultServerName,
+				"email":                      acmeConfig.Email,
+				"provider":                   acmeConfig.Provider,
+				"disable_http_challenge":     false,
+				"disable_tls_alpn_challenge": true,
 			}
 		}
 		inbound["tls"] = tls

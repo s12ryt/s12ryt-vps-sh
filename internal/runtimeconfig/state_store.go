@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/mail"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -50,6 +51,7 @@ type PersistedTLSConfig struct {
 	CertificatePath string                  `json:"certificate_path,omitempty"`
 	KeyPath         string                  `json:"key_path,omitempty"`
 	Reality         *PersistedRealityConfig `json:"reality,omitempty"`
+	ACME            *PersistedACMEConfig    `json:"acme,omitempty"`
 }
 
 type PersistedRealityConfig struct {
@@ -57,6 +59,14 @@ type PersistedRealityConfig struct {
 	HandshakePort   int    `json:"handshake_port"`
 	PrivateKey      string `json:"private_key"`
 	ShortID         string `json:"short_id"`
+}
+
+type PersistedACMEConfig struct {
+	Domains           []string `json:"domains"`
+	DataDirectory     string   `json:"data_directory"`
+	DefaultServerName string   `json:"default_server_name"`
+	Email             string   `json:"email,omitempty"`
+	Provider          string   `json:"provider"`
 }
 
 type PersistedTransportConfig struct {
@@ -195,6 +205,9 @@ func (node PersistedNodeDeployment) validate() error {
 }
 
 func (config PersistedTLSConfig) validate() error {
+	if config.Reality != nil && config.ACME != nil {
+		return errors.New("Reality and ACME cannot be enabled together")
+	}
 	if config.Reality != nil {
 		if !config.Enabled {
 			return errors.New("Reality requires TLS to be enabled")
@@ -214,6 +227,21 @@ func (config PersistedTLSConfig) validate() error {
 		}
 		return nil
 	}
+	if config.ACME != nil {
+		if !config.Enabled {
+			return errors.New("ACME requires TLS to be enabled")
+		}
+		if config.CertificatePath != "" || config.KeyPath != "" {
+			return errors.New("ACME cannot use certificate and key paths")
+		}
+		if err := config.ACME.validate(); err != nil {
+			return err
+		}
+		if config.ServerName == "" || !persistedContainsString(config.ACME.Domains, config.ServerName) {
+			return errors.New("TLS server name must be one of the ACME domains")
+		}
+		return nil
+	}
 	if config.Enabled && (config.CertificatePath == "" || config.KeyPath == "") {
 		return errors.New("TLS certificate and key paths are required")
 	}
@@ -221,6 +249,68 @@ func (config PersistedTLSConfig) validate() error {
 		return errors.New("disabled TLS cannot contain certificate settings")
 	}
 	return nil
+}
+
+func (config PersistedACMEConfig) validate() error {
+	if len(config.Domains) == 0 {
+		return errors.New("ACME requires at least one domain")
+	}
+	seen := make(map[string]struct{}, len(config.Domains))
+	for _, domainName := range config.Domains {
+		if !validPersistedACMEDomain(domainName) {
+			return fmt.Errorf("invalid ACME domain %q", domainName)
+		}
+		if _, duplicate := seen[domainName]; duplicate {
+			return fmt.Errorf("duplicate ACME domain %q", domainName)
+		}
+		seen[domainName] = struct{}{}
+	}
+	if config.DataDirectory != singbox.ACMEDataDirectory {
+		return fmt.Errorf("ACME data directory must be %s", singbox.ACMEDataDirectory)
+	}
+	if !persistedContainsString(config.Domains, config.DefaultServerName) {
+		return errors.New("ACME default server name must be one of the ACME domains")
+	}
+	if config.Provider != "letsencrypt" {
+		return errors.New("ACME provider must be letsencrypt")
+	}
+	if config.Email != "" {
+		address, err := mail.ParseAddress(config.Email)
+		if err != nil || address.Address != config.Email {
+			return errors.New("invalid ACME account email")
+		}
+	}
+	return nil
+}
+
+func validPersistedACMEDomain(value string) bool {
+	if len(value) < 3 || len(value) > 253 || strings.Contains(value, "..") || !strings.Contains(value, ".") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || !persistedASCIIAlphaNumeric(label[0]) || !persistedASCIIAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for index := 1; index < len(label)-1; index++ {
+			if !persistedASCIIAlphaNumeric(label[index]) && label[index] != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func persistedASCIIAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
+
+func persistedContainsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (config PersistedTransportConfig) validate() error {
@@ -294,6 +384,15 @@ func (node PersistedNodeDeployment) toRuntimeDeployment() NodeDeployment {
 			HandshakePort:   node.TLS.Reality.HandshakePort,
 			PrivateKey:      node.TLS.Reality.PrivateKey,
 			ShortID:         node.TLS.Reality.ShortID,
+		}
+	}
+	if node.TLS.ACME != nil {
+		tlsConfig.ACME = &singbox.ACMEConfig{
+			Domains:           append([]string(nil), node.TLS.ACME.Domains...),
+			DataDirectory:     node.TLS.ACME.DataDirectory,
+			DefaultServerName: node.TLS.ACME.DefaultServerName,
+			Email:             node.TLS.ACME.Email,
+			Provider:          node.TLS.ACME.Provider,
 		}
 	}
 	return NodeDeployment{
