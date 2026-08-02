@@ -16,7 +16,7 @@ func TestPlanClientIPv4ModeKeepsIPv4LocalAndAssignsIndependentOutbounds(t *testi
 	)
 
 	plan, err := BuildPlan(Input{
-		Config:             config,
+		Config: config,
 		OutboundCandidates: []OutboundCandidate{
 			{Tag: "direct-v6-a", Kind: CandidateDirectIPv6},
 			{Tag: "remote-vless-b", Kind: CandidateRemoteProxy},
@@ -188,7 +188,7 @@ func TestPlanRejectsContradictoryOrUnsafeTopologyInputs(t *testing.T) {
 		{
 			name: "single rotating topology requires two candidates",
 			input: Input{
-				Config:             topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
+				Config: topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
 				OutboundCandidates: []OutboundCandidate{direct},
 			},
 		},
@@ -202,7 +202,7 @@ func TestPlanRejectsContradictoryOrUnsafeTopologyInputs(t *testing.T) {
 		{
 			name: "duplicate outbound tag",
 			input: Input{
-				Config:             topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
+				Config: topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
 				OutboundCandidates: []OutboundCandidate{
 					{Tag: "same", Kind: CandidateDirectIPv6},
 					{Tag: "same", Kind: CandidateRemoteProxy},
@@ -212,7 +212,7 @@ func TestPlanRejectsContradictoryOrUnsafeTopologyInputs(t *testing.T) {
 		{
 			name: "unsafe outbound tag",
 			input: Input{
-				Config:             topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
+				Config: topologyConfig(domain.RoutingModeClientIPv4, domain.TopologyMultiIPv6RotatingNode, []domain.Node{validNode}),
 				OutboundCandidates: []OutboundCandidate{
 					{Tag: "../escape", Kind: CandidateDirectIPv6},
 					remote,
