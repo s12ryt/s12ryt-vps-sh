@@ -38,3 +38,24 @@ setup() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"穩定觀察時間不得少於 60 秒"* ]]
 }
+
+@test "資源驗收會從所有 panel thread 尋找受管理的 sing-box" {
+  local proc_root="$SANDBOX/proc"
+  local executable="$SANDBOX/sing-box"
+
+  mkdir -p \
+    "$proc_root/123/task/123" \
+    "$proc_root/123/task/456" \
+    "$proc_root/789"
+  printf '\n' >"$proc_root/123/task/123/children"
+  printf '789\n' >"$proc_root/123/task/456/children"
+  printf '#!/bin/sh\n' >"$executable"
+  ln -s "$executable" "$proc_root/789/exe"
+
+  export S12RYT_RESOURCE_PROC_ROOT="$proc_root"
+  source "$PROJECT_ROOT/scripts/verify-resource-usage.sh"
+
+  run resource_find_sing_box_pid 123
+  [ "$status" -eq 0 ]
+  [ "$output" = "789" ]
+}
