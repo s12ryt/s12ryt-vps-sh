@@ -12,9 +12,9 @@ func TestSingBoxValidatorChecksProtectedTemporaryConfiguration(t *testing.T) {
 	payload := []byte("{\"inbounds\":[],\"outbounds\":[]}\n")
 	runner := &recordingValidatorRunner{t: t, wantPayload: payload}
 	validator, err := NewSingBoxValidator(SingBoxValidatorOptions{
-		BinaryPath:        "/opt/s12ryt-ipv6/bin/sing-box",
+		BinaryPath:         "/opt/s12ryt-ipv6/bin/sing-box",
 		TemporaryDirectory: temporaryDirectory,
-		Runner:            runner,
+		Runner:             runner,
 	})
 	if err != nil {
 		t.Fatalf("NewSingBoxValidator() error = %v", err)
@@ -38,9 +38,9 @@ func TestSingBoxValidatorPreservesCheckFailureAndCleansTemporaryFile(t *testing.
 	wantErr := errors.New("sing-box rejected configuration")
 	runner := &recordingValidatorRunner{t: t, wantErr: wantErr}
 	validator, err := NewSingBoxValidator(SingBoxValidatorOptions{
-		BinaryPath:        "/opt/s12ryt-ipv6/bin/sing-box",
+		BinaryPath:         "/opt/s12ryt-ipv6/bin/sing-box",
 		TemporaryDirectory: t.TempDir(),
-		Runner:            runner,
+		Runner:             runner,
 	})
 	if err != nil {
 		t.Fatalf("NewSingBoxValidator() error = %v", err)
@@ -56,9 +56,9 @@ func TestSingBoxValidatorPreservesCheckFailureAndCleansTemporaryFile(t *testing.
 
 func TestNewSingBoxValidatorRejectsUnsafeOptions(t *testing.T) {
 	valid := SingBoxValidatorOptions{
-		BinaryPath:        "/opt/s12ryt-ipv6/bin/sing-box",
+		BinaryPath:         "/opt/s12ryt-ipv6/bin/sing-box",
 		TemporaryDirectory: "/opt/s12ryt-ipv6/config",
-		Runner:            &recordingValidatorRunner{t: t},
+		Runner:             &recordingValidatorRunner{t: t},
 	}
 	for name, mutate := range map[string]func(*SingBoxValidatorOptions){
 		"relative binary":    func(options *SingBoxValidatorOptions) { options.BinaryPath = "sing-box" },
@@ -78,9 +78,9 @@ func TestNewSingBoxValidatorRejectsUnsafeOptions(t *testing.T) {
 func TestSingBoxValidatorRejectsEmptyPayloadBeforeRunningCommand(t *testing.T) {
 	runner := &recordingValidatorRunner{t: t}
 	validator, err := NewSingBoxValidator(SingBoxValidatorOptions{
-		BinaryPath:        "/opt/s12ryt-ipv6/bin/sing-box",
+		BinaryPath:         "/opt/s12ryt-ipv6/bin/sing-box",
 		TemporaryDirectory: t.TempDir(),
-		Runner:            runner,
+		Runner:             runner,
 	})
 	if err != nil {
 		t.Fatalf("NewSingBoxValidator() error = %v", err)
