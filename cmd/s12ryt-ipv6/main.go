@@ -21,6 +21,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/certificates"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/endpoint"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
@@ -42,6 +43,7 @@ const defaultProjectRoot = "/opt/s12ryt-ipv6"
 const shutdownTimeout = 10 * time.Second
 const validationTimeout = 15 * time.Second
 const systemCommandTimeout = 30 * time.Second
+const endpointHealthTimeout = 10 * time.Second
 
 type managedHTTPServer interface {
 	Serve(net.Listener) error
@@ -61,6 +63,10 @@ type integrationCleaner interface {
 
 type integrationRestorer interface {
 	Restore(context.Context) error
+}
+
+type endpointUpdater interface {
+	Apply(context.Context, domain.PanelConfig) error
 }
 
 type integrationStateManager interface {
@@ -115,6 +121,7 @@ type commandOptions struct {
 	Addresses           func() ([]netip.Addr, error)
 	IntegrationCleaner  integrationCleaner
 	IntegrationRestorer integrationRestorer
+	EndpointUpdater     endpointUpdater
 }
 
 type passwordResetOptions struct {
@@ -232,6 +239,47 @@ func runCommand(arguments []string, options commandOptions) error {
 		fmt.Fprintln(options.Output, "專案網路整合狀態已恢復。")
 		return nil
 	}
+	if len(arguments) >= 1 && arguments[0] == "set-endpoint" {
+		if len(arguments) != 6 {
+			return errors.New("用法：s12ryt-ipv6 set-endpoint PORT WEB_PATH LISTEN_IPV6|- systemd|openrc")
+		}
+		port, err := strconv.Atoi(arguments[1])
+		if err != nil {
+			return fmt.Errorf("管理面板埠必須是整數：%w", err)
+		}
+		initSystem := arguments[5]
+		if initSystem != "systemd" && initSystem != "openrc" {
+			return errors.New("管理面板端點更新只支援 systemd 或 OpenRC")
+		}
+		configRepository := store.NewConfigStore(filepath.Join(options.ProjectRoot, "config", "config.json"))
+		current, err := configRepository.Load()
+		if err != nil {
+			return fmt.Errorf("讀取目前管理面板端點：%w", err)
+		}
+		candidate := current
+		candidate.Panel.AllowedCIDRs = append([]string(nil), current.Panel.AllowedCIDRs...)
+		candidate.Panel.Port = port
+		candidate.Panel.Path = arguments[2]
+		candidate.Panel.ListenIPv6 = arguments[3]
+		if candidate.Panel.ListenIPv6 == "-" {
+			candidate.Panel.ListenIPv6 = ""
+		}
+		if err := candidate.Validate(); err != nil {
+			return fmt.Errorf("驗證管理面板端點：%w", err)
+		}
+		updater := options.EndpointUpdater
+		if updater == nil {
+			updater, err = newEndpointUpdater(options.ProjectRoot, initSystem, options.Output)
+			if err != nil {
+				return err
+			}
+		}
+		if err := updater.Apply(options.Context, candidate.Panel); err != nil {
+			return fmt.Errorf("更新管理面板端點：%w", err)
+		}
+		fmt.Fprintln(options.Output, "管理面板端點已更新。")
+		return nil
+	}
 	if len(arguments) == 0 || (len(arguments) == 1 && arguments[0] == "serve") {
 		return runApplication(options.Context, runtimeOptions{
 			ConfigPath:                filepath.Join(options.ProjectRoot, "config", "config.json"),
@@ -243,7 +291,7 @@ func runCommand(arguments []string, options commandOptions) error {
 			Entropy:                   options.Entropy,
 		})
 	}
-	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|reset-password|restore-system|cleanup-system]")
+	return errors.New("用法：s12ryt-ipv6 [init|serve|status|health-url|reset-password|set-endpoint|restore-system|cleanup-system]")
 }
 
 func readPasswordInput(input io.Reader) (string, error) {
@@ -423,6 +471,45 @@ func newIntegrationStateManager(projectRoot string, output io.Writer) (integrati
 		return nil, fmt.Errorf("建立系統整合管理器：%w", err)
 	}
 	return cleaner, nil
+}
+
+func newEndpointUpdater(projectRoot string, initSystem string, output io.Writer) (endpointUpdater, error) {
+	runner, err := projectsystem.NewExecRunner(projectsystem.ExecRunnerOptions{
+		Timeout: systemCommandTimeout,
+		Output:  output,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點命令執行器：%w", err)
+	}
+	runtime, err := endpoint.NewServiceRuntime(endpoint.ServiceRuntimeOptions{
+		InitSystem: initSystem,
+		Runner:     runner,
+		HTTPClient: &http.Client{Timeout: endpointHealthTimeout},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點服務介面：%w", err)
+	}
+	manifestStore, err := manifest.NewStore(filepath.Join(projectRoot, "state", "integration.json"))
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點整合狀態：%w", err)
+	}
+	integrationManager, err := manifest.NewIntegrationManager(manifestStore, runner)
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點整合管理器：%w", err)
+	}
+	network, err := endpoint.NewManifestNetwork(manifestStore, integrationManager)
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點網路介面：%w", err)
+	}
+	manager, err := endpoint.NewManager(endpoint.ManagerOptions{
+		Repository: store.NewConfigStore(filepath.Join(projectRoot, "config", "config.json")),
+		Runtime:    runtime,
+		Network:    network,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立管理面板端點管理器：%w", err)
+	}
+	return manager, nil
 }
 
 func printHealthURL(projectRoot string, output io.Writer) error {
