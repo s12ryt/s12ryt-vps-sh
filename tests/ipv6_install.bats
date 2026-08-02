@@ -417,6 +417,51 @@ EOF
     ! grep -Fq 'systemctl restart' "$MOCK_LOG"
 }
 
+@test "configure 選單將端點變更完整委派給 Go 交易命令" {
+    create_command_mock systemctl
+    create_configurable_ipv6_panel
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=systemd \
+        S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
+        /bin/bash -c 'printf "4\n35555\n/newpanel1234\n2001:db8:100::20\ny\n0\n" | /bin/bash "$1" configure' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"4. 變更管理面板端點"* ]]
+    [[ "$output" == *"管理面板埠"* ]]
+    [[ "$output" == *"Web 路徑"* ]]
+    [[ "$output" == *"監聽 IPv6"* ]]
+    grep -Fxq 'panel set-endpoint 35555 /newpanel1234 2001:db8:100::20 systemd' "$MOCK_LOG"
+    ! grep -Fq 'systemctl restart' "$MOCK_LOG"
+}
+
+@test "configure 取消端點變更時不呼叫交易命令" {
+    create_configurable_ipv6_panel
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_KERNEL_NAME=Linux \
+        S12RYT_EFFECTIVE_UID=0 \
+        S12RYT_INIT_SYSTEM=openrc \
+        S12RYT_MACHINE_ARCH=x86_64 \
+        S12RYT_IPV6_SOURCE_ONLY=0 \
+        /bin/bash -c 'printf "4\n34456\n/configureme1\n-\nn\n0\n" | /bin/bash "$1" configure' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"已取消管理面板端點變更"* ]]
+    ! grep -Fq 'panel set-endpoint' "$MOCK_LOG"
+}
+
 @test "下載後尚未帶執行權限的面板資產仍可安全部署" {
     create_command_mock systemctl
     local bundle="${TEST_ROOT}/verified-bundle"
