@@ -59,6 +59,16 @@
 - [x] 更新主腳本/README 至 `v1.1.0`，完成完整 GitHub-hosted 回歸與品質審查（版本/文件 RED run `30761478600`；首個候選 run `30761947232` 揭露過時自我更新 fixture；最終 GREEN run `30762093464`）。
 - [x] 建立並驗證 `v1.1.0` Release，保留既有 Releases（tag commit `020f03de6404b54937952b990051eb6d4664f462`；發行候選 GREEN run `30762345278`）。
 
+## 目前任務：v1.1.1 Web UI/UX 自主升級
+
+- [x] 盤點既有 Go 內嵌頁面、八個 static modal、Playwright 桌面/手機契約與 API/安全邊界。
+- [x] 完成設計系統調研並確認深色 NOC、平衡密度、Desktop 側欄、Mobile 分頁、五工作區 URL hash 與完整操作優化。
+- [ ] TDD：深色 NOC、五工作區 tab/tabpanel、hash 導覽與 desktop/mobile 響應式。
+- [ ] TDD：HTTP mutation loading/disabled、防重複提交、成功通知、欄位錯誤與危險操作層級。
+- [ ] TDD：skip link、focus-visible、modal 初始焦點/焦點鎖定/返回與完整鍵盤操作。
+- [ ] 執行 Playwright desktop/mobile、Go/Bash、文件、cross-build、資源與 10 發行版完整回歸及品質審查。
+- [ ] 更新主腳本與 README 至 `v1.1.1`，建立並驗證正式 Release，保留既有 Releases。
+
 ## 驗收依據
 
 - 唯一需求契約：`agent/question.md`。
