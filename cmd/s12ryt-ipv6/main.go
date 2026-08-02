@@ -21,6 +21,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/panel"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
@@ -72,6 +73,7 @@ type runtimeOptions struct {
 	Runtime                   managedRuntime
 	ValidateRuntime           func([]byte) error
 	RuntimeOutput             io.Writer
+	NetworkManager            panel.NetworkManager
 }
 
 type application struct {
@@ -536,22 +538,68 @@ func loadApplication(options runtimeOptions) (application, error) {
 	if err != nil {
 		return application{}, fmt.Errorf("建立節點管理服務：%w", err)
 	}
+	networkManager := options.NetworkManager
+	if networkManager == nil {
+		networkManager, err = newNetworkManager(options)
+		if err != nil {
+			return application{}, err
+		}
+	}
 	server := panel.NewServer(panel.Options{
-		BasePath:      config.Panel.Path,
-		PasswordHash:  passwordHash,
-		Hasher:        hasher,
-		Sessions:      sessions,
-		Limiter:       limiter,
-		Config:        config,
-		Store:         configStore,
-		NodeManager:   nodeManager,
-		RemoteManager: nodeManager,
+		BasePath:       config.Panel.Path,
+		PasswordHash:   passwordHash,
+		Hasher:         hasher,
+		Sessions:       sessions,
+		Limiter:        limiter,
+		Config:         config,
+		Store:          configStore,
+		NodeManager:    nodeManager,
+		RemoteManager:  nodeManager,
+		NetworkManager: networkManager,
 	})
 	return application{
 		address: fmt.Sprintf("[::]:%d", config.Panel.Port),
 		handler: server.Handler(),
 		runtime: runtime,
 	}, nil
+}
+
+func newNetworkManager(options runtimeOptions) (panel.NetworkManager, error) {
+	outputRunner, err := projectsystem.NewExecOutputRunner(projectsystem.ExecOutputRunnerOptions{
+		Timeout:     systemCommandTimeout,
+		ErrorOutput: options.RuntimeOutput,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立 IPv6 探測命令執行器：%w", err)
+	}
+	discovery, err := networksetup.NewIPDiscovery(outputRunner)
+	if err != nil {
+		return nil, fmt.Errorf("建立 IPv6 系統探測器：%w", err)
+	}
+	repository, err := manifest.NewStore(filepath.Join(filepath.Dir(options.RuntimeStatePath), "integration.json"))
+	if err != nil {
+		return nil, fmt.Errorf("建立系統整合狀態儲存：%w", err)
+	}
+	commandRunner, err := projectsystem.NewExecRunner(projectsystem.ExecRunnerOptions{
+		Timeout: systemCommandTimeout,
+		Output:  options.RuntimeOutput,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立系統整合命令執行器：%w", err)
+	}
+	applier, err := manifest.NewIntegrationManager(repository, commandRunner)
+	if err != nil {
+		return nil, fmt.Errorf("建立系統整合套用器：%w", err)
+	}
+	coordinator, err := networksetup.NewCoordinator(networksetup.CoordinatorOptions{
+		Discovery: discovery,
+		Applier:   applier,
+		Entropy:   options.Entropy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("建立網路整合服務：%w", err)
+	}
+	return coordinator, nil
 }
 
 func buildRuntimeDependencies(options runtimeOptions) (managedRuntime, func([]byte) error, error) {
