@@ -968,6 +968,74 @@ run_supervisor_manager() {
     bash "$helper" service
 }
 
+ipv6_helper_path() {
+    if [[ -n "${S12RYT_IPV6_HELPER_PATH:-}" ]]; then
+        printf '%s\n' "$S12RYT_IPV6_HELPER_PATH"
+    elif (( EUID == 0 )); then
+        printf '/usr/local/lib/s12ryt/install-ipv6.sh\n'
+    else
+        printf '%s/.local/share/s12ryt/install-ipv6.sh\n' "$HOME"
+    fi
+}
+
+ensure_ipv6_helper() {
+    local source_path target_path target_dir temp_file helper_url
+
+    target_path="$(ipv6_helper_path)"
+    target_dir="$(dirname "$target_path")"
+    source_path="${S12RYT_IPV6_HELPER_SOURCE:-$(dirname "$(script_path)")/install-ipv6.sh}"
+    mkdir -p -- "$target_dir" || {
+        printf '錯誤：無法建立 IPv6 專案腳本目錄。\n' >&2
+        return 1
+    }
+
+    if [[ "$source_path" == "$target_path" && -f "$target_path" ]]; then
+        if ! bash -n "$target_path"; then
+            printf '錯誤：既有 IPv6 專案腳本語法無效。\n' >&2
+            return 1
+        fi
+        chmod 0755 "$target_path" || return 1
+        printf '%s\n' "$target_path"
+        return 0
+    fi
+
+    temp_file="$(mktemp "${target_dir}/.install-ipv6.XXXXXX")" || {
+        printf '錯誤：無法建立 IPv6 專案腳本暫存檔。\n' >&2
+        return 1
+    }
+    if [[ -f "$source_path" ]]; then
+        if ! cp -- "$source_path" "$temp_file"; then
+            rm -f -- "$temp_file"
+            printf '錯誤：無法複製 IPv6 專案腳本。\n' >&2
+            return 1
+        fi
+    else
+        if ! command -v curl >/dev/null 2>&1; then
+            rm -f -- "$temp_file"
+            printf '錯誤：下載 IPv6 專案腳本需要 curl。\n' >&2
+            return 1
+        fi
+        helper_url="${S12RYT_IPV6_HELPER_URL:-https://raw.githubusercontent.com/s12ryt/s12ryt-vps-sh/v${VERSION}/install-ipv6.sh}"
+        if ! curl -fsSL --connect-timeout 5 --max-time 30 "$helper_url" -o "$temp_file"; then
+            rm -f -- "$temp_file"
+            printf '錯誤：無法下載 IPv6 專案腳本。\n' >&2
+            return 1
+        fi
+    fi
+
+    if ! bash -n "$temp_file"; then
+        rm -f -- "$temp_file"
+        printf '錯誤：IPv6 專案腳本語法驗證失敗，保留既有版本。\n' >&2
+        return 1
+    fi
+    if ! chmod 0755 "$temp_file" || ! mv -f -- "$temp_file" "$target_path"; then
+        rm -f -- "$temp_file"
+        printf '錯誤：無法原子安裝 IPv6 專案腳本。\n' >&2
+        return 1
+    fi
+    printf '%s\n' "$target_path"
+}
+
 detect_fanout_init() {
     if [[ -n "${S12RYT_INIT_SYSTEM+x}" ]]; then
         case "$S12RYT_INIT_SYSTEM" in
@@ -1209,7 +1277,10 @@ EOF
 }
 
 install_ipv6_project() {
-    not_implemented
+    local helper
+
+    helper="$(ensure_ipv6_helper)" || return 1
+    bash "$helper" install
 }
 
 update_ipv6_project() {
