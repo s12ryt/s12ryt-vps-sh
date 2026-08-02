@@ -48,10 +48,10 @@ case "${S12RYT_CURL_MODE:-success}:${url}" in
             printf '%s  s12ryt-ipv6-linux-amd64\n' "${panel_hash%% *}" > "$output"
         fi
         ;;
-    *:/s12ryt-ipv6-linux-amd64)
+    *:*/s12ryt-ipv6-linux-amd64)
         printf 'panel-amd64\n' > "$output"
         ;;
-    *:/sing-box-1.13.15-linux-amd64.tar.gz)
+    *:*/sing-box-1.13.15-linux-amd64.tar.gz)
         if [[ "${S12RYT_CURL_MODE:-success}" == "archive-fail" ]]; then
             printf 'not-an-archive\n' > "$output"
         else
