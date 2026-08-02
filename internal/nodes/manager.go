@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
@@ -66,6 +67,16 @@ func (manager *Manager) Snapshot() domain.Config {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	return cloneConfig(manager.config)
+}
+
+func (manager *Manager) ReplaceConfig(candidate domain.Config) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	if !reflect.DeepEqual(candidate.Nodes, manager.config.Nodes) {
+		return errors.New("managed nodes must be changed through node operations")
+	}
+	return manager.persist(cloneConfig(candidate))
 }
 
 func (manager *Manager) Create(input CreateInput) (domain.Node, error) {
