@@ -44,17 +44,17 @@ run_release_builder() {
 }
 
 @test "release builder 交叉編譯 amd64 arm64 並產生可驗證的 SHA256SUMS" {
-    output="${TEST_ROOT}/release"
+    release_dir="${TEST_ROOT}/release"
 
-    run_release_builder "$output"
+    run_release_builder "$release_dir"
 
     [ "$status" -eq 0 ]
-    [ -x "${output}/s12ryt-ipv6-linux-amd64" ]
-    [ -x "${output}/s12ryt-ipv6-linux-arm64" ]
-    [ -f "${output}/SHA256SUMS" ]
-    [ "$(wc -l < "${output}/SHA256SUMS")" -eq 2 ]
+    [ -x "${release_dir}/s12ryt-ipv6-linux-amd64" ]
+    [ -x "${release_dir}/s12ryt-ipv6-linux-arm64" ]
+    [ -f "${release_dir}/SHA256SUMS" ]
+    [ "$(wc -l < "${release_dir}/SHA256SUMS")" -eq 2 ]
 
-    run /bin/bash -c 'cd "$1" && sha256sum -c SHA256SUMS' _ "$output"
+    run /bin/bash -c 'cd "$1" && sha256sum -c SHA256SUMS' _ "$release_dir"
     [ "$status" -eq 0 ]
     [[ "$output" == *"s12ryt-ipv6-linux-amd64: OK"* ]]
     [[ "$output" == *"s12ryt-ipv6-linux-arm64: OK"* ]]
@@ -65,24 +65,26 @@ run_release_builder() {
 }
 
 @test "任一架構建置失敗時不發布部分資產" {
-    output="${TEST_ROOT}/release"
+    release_dir="${TEST_ROOT}/release"
     export MOCK_GO_FAIL_ARCH=arm64
 
-    run_release_builder "$output"
+    run_release_builder "$release_dir"
 
     [ "$status" -ne 0 ]
-    [ ! -e "$output" ]
+    [[ "$output" == *"錯誤：arm64 發行資產建置失敗。"* ]]
+    [ ! -e "$release_dir" ]
     [ -z "$(find "$TEST_ROOT" -maxdepth 1 -name '.s12ryt-release.*' -print -quit)" ]
 }
 
 @test "release builder 拒絕覆寫既有輸出目錄" {
-    output="${TEST_ROOT}/release"
-    mkdir -p "$output"
-    printf 'keep\n' > "${output}/sentinel"
+    release_dir="${TEST_ROOT}/release"
+    mkdir -p "$release_dir"
+    printf 'keep\n' > "${release_dir}/sentinel"
 
-    run_release_builder "$output"
+    run_release_builder "$release_dir"
 
     [ "$status" -ne 0 ]
-    [ "$(cat "${output}/sentinel")" = "keep" ]
+    [[ "$output" == *"錯誤：發行資產輸出目錄已存在。"* ]]
+    [ "$(cat "${release_dir}/sentinel")" = "keep" ]
     [ ! -s "$MOCK_LOG" ]
 }
