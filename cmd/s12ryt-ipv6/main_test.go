@@ -615,15 +615,15 @@ func TestLoadApplicationWiresACMEHTTPPortPreflight(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	checker := &stubACMEChallengeChecker{available: true}
 	application, err := loadApplication(runtimeOptions{
-		ConfigPath:              paths.config,
-		PasswordHashPath:        paths.passwordHash,
-		RuntimeStatePath:        paths.runtimeState,
-		RuntimeConfigPath:       paths.runtimeConfig,
-		Entropy:                 bytes.NewReader(bytes.Repeat([]byte{0x6d}, 512)),
-		Clock:                   func() time.Time { return time.Unix(1_800_000_000, 0) },
-		Runtime:                 &stubRuntime{},
-		ValidateRuntime:         func([]byte) error { return nil },
-		ACMEChallengeChecker:    checker,
+		ConfigPath:           paths.config,
+		PasswordHashPath:     paths.passwordHash,
+		RuntimeStatePath:     paths.runtimeState,
+		RuntimeConfigPath:    paths.runtimeConfig,
+		Entropy:              bytes.NewReader(bytes.Repeat([]byte{0x6d}, 512)),
+		Clock:                func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Runtime:              &stubRuntime{},
+		ValidateRuntime:      func([]byte) error { return nil },
+		ACMEChallengeChecker: checker,
 	})
 	if err != nil {
 		t.Fatalf("loadApplication returned error: %v", err)
