@@ -13,6 +13,7 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 )
 
 const SessionCookieName = "s12ryt_panel_session"
@@ -23,6 +24,14 @@ type ConfigStore interface {
 	Save(domain.Config) error
 }
 
+type NodeManager interface {
+	Snapshot() domain.Config
+	ReplaceConfig(domain.Config) error
+	Create(nodes.CreateInput) (domain.Node, error)
+	Update(nodes.UpdateInput) (domain.Node, error)
+	Delete(string) error
+}
+
 type Options struct {
 	BasePath     string
 	PasswordHash string
@@ -31,6 +40,7 @@ type Options struct {
 	Limiter      *auth.LoginLimiter
 	Config       domain.Config
 	Store        ConfigStore
+	NodeManager  NodeManager
 }
 
 type Server struct {
@@ -42,17 +52,23 @@ type Server struct {
 	mutex        sync.RWMutex
 	config       domain.Config
 	store        ConfigStore
+	nodeManager  NodeManager
 }
 
 func NewServer(options Options) *Server {
+	config := options.Config
+	if options.NodeManager != nil {
+		config = options.NodeManager.Snapshot()
+	}
 	return &Server{
 		basePath:     strings.TrimRight(options.BasePath, "/"),
 		passwordHash: options.PasswordHash,
 		hasher:       options.Hasher,
 		sessions:     options.Sessions,
 		limiter:      options.Limiter,
-		config:       options.Config,
+		config:       config,
 		store:        options.Store,
+		nodeManager:  options.NodeManager,
 	}
 }
 
@@ -75,6 +91,12 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 		server.getConfig(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/config/apply":
 		server.applyConfig(response, request)
+	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/api/nodes":
+		server.listNodes(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/nodes":
+		server.createNode(response, request)
+	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/nodes/"):
+		server.handleNamedNode(response, request)
 	default:
 		http.NotFound(response, request)
 	}
@@ -201,7 +223,7 @@ func (server *Server) validateConfigRequest(response http.ResponseWriter, reques
 	if !server.authorizeStateChange(response, request) {
 		return
 	}
-	candidate, valid := decodeCandidateConfig(response, request)
+	candidate, valid := server.decodeCandidateConfig(response, request)
 	if !valid {
 		return
 	}
@@ -216,10 +238,7 @@ func (server *Server) getConfig(response http.ResponseWriter, request *http.Requ
 		http.Error(response, "需要登入。", http.StatusUnauthorized)
 		return
 	}
-	server.mutex.RLock()
-	config := server.config
-	server.mutex.RUnlock()
-	writeJSON(response, http.StatusOK, config)
+	writeJSON(response, http.StatusOK, editableConfigFrom(server.currentConfig()))
 }
 
 func (server *Server) applyConfig(response http.ResponseWriter, request *http.Request) {
@@ -230,8 +249,17 @@ func (server *Server) applyConfig(response http.ResponseWriter, request *http.Re
 		http.Error(response, "套用設定需要明確確認。", http.StatusConflict)
 		return
 	}
-	candidate, valid := decodeCandidateConfig(response, request)
+	candidate, valid := server.decodeCandidateConfig(response, request)
 	if !valid {
+		return
+	}
+	if server.nodeManager != nil {
+		if err := server.nodeManager.ReplaceConfig(candidate); err != nil {
+			http.Error(response, "設定包含不允許的節點變更。", http.StatusUnprocessableEntity)
+			return
+		}
+		server.replaceCurrentConfig(server.nodeManager.Snapshot())
+		writeJSON(response, http.StatusOK, map[string]bool{"applied": true})
 		return
 	}
 	if server.store == nil {
@@ -242,10 +270,190 @@ func (server *Server) applyConfig(response http.ResponseWriter, request *http.Re
 		http.Error(response, "無法保存設定。", http.StatusInternalServerError)
 		return
 	}
-	server.mutex.Lock()
-	server.config = candidate
-	server.mutex.Unlock()
+	server.replaceCurrentConfig(candidate)
 	writeJSON(response, http.StatusOK, map[string]bool{"applied": true})
+}
+
+type nodeSummary struct {
+	ID                   string          `json:"id"`
+	Protocol             domain.Protocol `json:"protocol"`
+	Port                 int             `json:"port"`
+	Enabled              bool            `json:"enabled"`
+	CredentialConfigured bool            `json:"credential_configured"`
+}
+
+type createNodeRequest struct {
+	ID       string          `json:"id"`
+	Protocol domain.Protocol `json:"protocol"`
+	Port     int             `json:"port"`
+	Enabled  bool            `json:"enabled"`
+}
+
+type updateNodeRequest struct {
+	Port    int  `json:"port"`
+	Enabled bool `json:"enabled"`
+}
+
+type editableConfig struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Panel         domain.PanelConfig    `json:"panel"`
+	IPv6          domain.IPv6PoolConfig `json:"ipv6"`
+	Routing       domain.RoutingConfig  `json:"routing"`
+	Health        domain.HealthConfig   `json:"health"`
+	Nodes         []nodeSummary         `json:"nodes"`
+}
+
+func (server *Server) listNodes(response http.ResponseWriter, request *http.Request) {
+	if _, valid := server.requestSession(request); !valid {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	if server.nodeManager == nil {
+		http.Error(response, "節點管理服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	config := server.nodeManager.Snapshot()
+	summaries := make([]nodeSummary, 0, len(config.Nodes))
+	for _, node := range config.Nodes {
+		summaries = append(summaries, summarizeNode(node))
+	}
+	writeJSON(response, http.StatusOK, summaries)
+}
+
+func (server *Server) createNode(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeNodeMutation(response, request) {
+		return
+	}
+	var input createNodeRequest
+	if !decodeStrictJSON(response, request, &input) {
+		return
+	}
+	node, err := server.nodeManager.Create(nodes.CreateInput{
+		ID: input.ID, Protocol: input.Protocol, Port: input.Port, Enabled: input.Enabled,
+	})
+	if err != nil {
+		http.Error(response, "無法建立節點。", http.StatusUnprocessableEntity)
+		return
+	}
+	server.replaceCurrentConfig(server.nodeManager.Snapshot())
+	writeJSON(response, http.StatusCreated, summarizeNode(node))
+}
+
+func (server *Server) handleNamedNode(response http.ResponseWriter, request *http.Request) {
+	id := strings.TrimPrefix(request.URL.Path, server.basePath+"/api/nodes/")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(response, "節點 ID 無效。", http.StatusBadRequest)
+		return
+	}
+	switch request.Method {
+	case http.MethodPatch:
+		server.updateNode(response, request, id)
+	case http.MethodDelete:
+		server.deleteNode(response, request, id)
+	default:
+		response.Header().Set("Allow", "PATCH, DELETE")
+		http.Error(response, "不支援的節點操作。", http.StatusMethodNotAllowed)
+	}
+}
+
+func (server *Server) updateNode(response http.ResponseWriter, request *http.Request, id string) {
+	if !server.authorizeNodeMutation(response, request) {
+		return
+	}
+	var input updateNodeRequest
+	if !decodeStrictJSON(response, request, &input) {
+		return
+	}
+	node, err := server.nodeManager.Update(nodes.UpdateInput{ID: id, Port: input.Port, Enabled: input.Enabled})
+	if err != nil {
+		http.Error(response, "無法更新節點。", http.StatusUnprocessableEntity)
+		return
+	}
+	server.replaceCurrentConfig(server.nodeManager.Snapshot())
+	writeJSON(response, http.StatusOK, summarizeNode(node))
+}
+
+func (server *Server) deleteNode(response http.ResponseWriter, request *http.Request, id string) {
+	if !server.authorizeNodeMutation(response, request) {
+		return
+	}
+	if err := server.nodeManager.Delete(id); err != nil {
+		http.Error(response, "無法刪除節點。", http.StatusUnprocessableEntity)
+		return
+	}
+	server.replaceCurrentConfig(server.nodeManager.Snapshot())
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (server *Server) authorizeNodeMutation(response http.ResponseWriter, request *http.Request) bool {
+	if !server.authorizeStateChange(response, request) {
+		return false
+	}
+	if request.Header.Get("X-S12ryt-Confirm") != "apply" {
+		http.Error(response, "節點變更需要明確確認。", http.StatusConflict)
+		return false
+	}
+	if server.nodeManager == nil {
+		http.Error(response, "節點管理服務不可用。", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func decodeStrictJSON(response http.ResponseWriter, request *http.Request, target any) bool {
+	request.Body = http.MaxBytesReader(response, request.Body, maxConfigBodySize)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		http.Error(response, "節點 JSON 無效。", http.StatusBadRequest)
+		return false
+	}
+	if err := ensureJSONEnd(decoder); err != nil {
+		http.Error(response, "節點 JSON 只能包含一個物件。", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func summarizeNode(node domain.Node) nodeSummary {
+	return nodeSummary{
+		ID: node.ID, Protocol: node.Protocol, Port: node.Port, Enabled: node.Enabled,
+		CredentialConfigured: node.Credential.Validate(node.Protocol) == nil,
+	}
+}
+
+func summarizeNodes(nodes []domain.Node) []nodeSummary {
+	if nodes == nil {
+		return nil
+	}
+	summaries := make([]nodeSummary, 0, len(nodes))
+	for _, node := range nodes {
+		summaries = append(summaries, summarizeNode(node))
+	}
+	return summaries
+}
+
+func editableConfigFrom(config domain.Config) editableConfig {
+	return editableConfig{
+		SchemaVersion: config.SchemaVersion,
+		Panel:         config.Panel,
+		IPv6:          config.IPv6,
+		Routing:       config.Routing,
+		Health:        config.Health,
+		Nodes:         summarizeNodes(config.Nodes),
+	}
+}
+
+func (server *Server) currentConfig() domain.Config {
+	server.mutex.RLock()
+	defer server.mutex.RUnlock()
+	return server.config
+}
+
+func (server *Server) replaceCurrentConfig(config domain.Config) {
+	server.mutex.Lock()
+	server.config = config
+	server.mutex.Unlock()
 }
 
 func (server *Server) authorizeStateChange(response http.ResponseWriter, request *http.Request) bool {
@@ -266,18 +474,31 @@ func (server *Server) authorizeStateChange(response http.ResponseWriter, request
 	return true
 }
 
-func decodeCandidateConfig(response http.ResponseWriter, request *http.Request) (domain.Config, bool) {
+func (server *Server) decodeCandidateConfig(response http.ResponseWriter, request *http.Request) (domain.Config, bool) {
 	request.Body = http.MaxBytesReader(response, request.Body, maxConfigBodySize)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
-	var candidate domain.Config
-	if err := decoder.Decode(&candidate); err != nil {
+	var editable editableConfig
+	if err := decoder.Decode(&editable); err != nil {
 		http.Error(response, "設定 JSON 無效。", http.StatusBadRequest)
 		return domain.Config{}, false
 	}
 	if err := ensureJSONEnd(decoder); err != nil {
 		http.Error(response, "設定 JSON 只能包含一個物件。", http.StatusBadRequest)
 		return domain.Config{}, false
+	}
+	current := server.currentConfig()
+	if !reflect.DeepEqual(editable.Nodes, summarizeNodes(current.Nodes)) {
+		http.Error(response, "節點必須透過節點管理 API 變更。", http.StatusUnprocessableEntity)
+		return domain.Config{}, false
+	}
+	candidate := domain.Config{
+		SchemaVersion: editable.SchemaVersion,
+		Panel:         editable.Panel,
+		IPv6:          editable.IPv6,
+		Routing:       editable.Routing,
+		Health:        editable.Health,
+		Nodes:         current.Nodes,
 	}
 	if err := candidate.Validate(); err != nil {
 		http.Error(response, "設定驗證失敗："+err.Error(), http.StatusUnprocessableEntity)
