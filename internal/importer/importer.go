@@ -77,6 +77,7 @@ func Import(input []byte, options Options) ([]Outbound, error) {
 		}
 		seen[line] = struct{}{}
 		outbound.Tag = fmt.Sprintf("remote-%d", len(outbounds)+1)
+		outbound.Raw["tag"] = outbound.Tag
 		outbounds = append(outbounds, outbound)
 	}
 	return outbounds, nil
@@ -107,6 +108,7 @@ func parseJSONOutbound(payload []byte, options Options) (Outbound, error) {
 	tag, _ := raw["tag"].(string)
 	if tag == "" {
 		tag = "remote-1"
+		raw["tag"] = tag
 	}
 	return Outbound{Type: typeName, Tag: tag, Server: server, Port: port, Raw: raw}, nil
 }
@@ -138,13 +140,15 @@ func parseShareLink(link string, options Options) (Outbound, error) {
 	if err := validateURIIdentity(typeName, parsed); err != nil {
 		return Outbound{}, err
 	}
+	raw, err := canonicalURIOutbound(typeName, parsed, server, port)
+	if err != nil {
+		return Outbound{}, err
+	}
 	return Outbound{
 		Type:   typeName,
 		Server: server,
 		Port:   port,
-		Raw: map[string]any{
-			"uri": link,
-		},
+		Raw:    raw,
 	}, nil
 }
 
@@ -175,7 +179,139 @@ func parseVMessLink(link string) (Outbound, error) {
 	if uuid == "" {
 		return Outbound{}, errors.New("VMess UUID is required")
 	}
-	return Outbound{Type: "vmess", Server: server, Port: port, Raw: map[string]any{"uri": link}}, nil
+	canonical := baseOutbound("vmess", server, port)
+	canonical["uuid"] = uuid
+	if security, _ := raw["scy"].(string); security != "" {
+		canonical["security"] = security
+	}
+	if tlsMode, _ := raw["tls"].(string); tlsMode == "tls" {
+		serverName, _ := raw["sni"].(string)
+		canonical["tls"] = outboundTLS(serverName, server)
+	}
+	transportType, _ := raw["net"].(string)
+	switch transportType {
+	case "", "tcp":
+	case "ws":
+		path, _ := raw["path"].(string)
+		if path == "" {
+			return Outbound{}, errors.New("VMess WebSocket path is required")
+		}
+		canonical["transport"] = map[string]any{"type": "ws", "path": path}
+	case "grpc":
+		serviceName, _ := raw["path"].(string)
+		if serviceName == "" {
+			return Outbound{}, errors.New("VMess gRPC service name is required")
+		}
+		canonical["transport"] = map[string]any{"type": "grpc", "service_name": serviceName}
+	default:
+		return Outbound{}, fmt.Errorf("unsupported VMess transport %q", transportType)
+	}
+	return Outbound{Type: "vmess", Server: server, Port: port, Raw: canonical}, nil
+}
+
+func canonicalURIOutbound(typeName string, parsed *url.URL, server string, port int) (map[string]any, error) {
+	raw := baseOutbound(typeName, server, port)
+	username := parsed.User.Username()
+	password, hasPassword := parsed.User.Password()
+	query := parsed.Query()
+
+	switch typeName {
+	case "vless":
+		raw["uuid"] = username
+		security := strings.ToLower(query.Get("security"))
+		switch security {
+		case "", "none":
+		case "tls":
+			raw["tls"] = outboundTLS(query.Get("sni"), server)
+		default:
+			return nil, fmt.Errorf("unsupported VLESS security %q", security)
+		}
+		if err := applyURITransport(raw, query); err != nil {
+			return nil, err
+		}
+	case "hysteria2":
+		raw["password"] = username
+		if hasPassword {
+			raw["password"] = username + ":" + password
+		}
+		raw["tls"] = outboundTLS(query.Get("sni"), server)
+	case "tuic":
+		raw["uuid"] = username
+		raw["password"] = password
+		raw["tls"] = outboundTLS(query.Get("sni"), server)
+	case "anytls":
+		raw["password"] = username
+		raw["tls"] = outboundTLS(query.Get("sni"), server)
+	case "shadowsocks":
+		decoded, err := decodeBase64(username)
+		if err != nil {
+			return nil, errors.New("Shadowsocks SIP002 user info is invalid")
+		}
+		method, secret, found := strings.Cut(string(decoded), ":")
+		if !found || method == "" || secret == "" {
+			return nil, errors.New("Shadowsocks SIP002 user info is invalid")
+		}
+		raw["method"] = method
+		raw["password"] = secret
+	case "socks":
+		raw["version"] = "5"
+		raw["username"] = username
+		raw["password"] = password
+	case "http":
+		raw["username"] = username
+		raw["password"] = password
+		if strings.EqualFold(parsed.Scheme, "https") {
+			raw["tls"] = outboundTLS(query.Get("sni"), server)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported outbound type %q", typeName)
+	}
+	return raw, nil
+}
+
+func baseOutbound(typeName, server string, port int) map[string]any {
+	return map[string]any{
+		"type":        typeName,
+		"server":      server,
+		"server_port": port,
+	}
+}
+
+func outboundTLS(serverName, fallback string) map[string]any {
+	if serverName == "" {
+		serverName = fallback
+	}
+	return map[string]any{
+		"enabled":     true,
+		"server_name": serverName,
+	}
+}
+
+func applyURITransport(raw map[string]any, query url.Values) error {
+	transportType := strings.ToLower(query.Get("type"))
+	switch transportType {
+	case "", "tcp":
+		return nil
+	case "ws", "websocket":
+		path := query.Get("path")
+		if path == "" {
+			return errors.New("WebSocket path is required")
+		}
+		raw["transport"] = map[string]any{"type": "ws", "path": path}
+		return nil
+	case "grpc":
+		serviceName := query.Get("serviceName")
+		if serviceName == "" {
+			serviceName = query.Get("service_name")
+		}
+		if serviceName == "" {
+			return errors.New("gRPC service name is required")
+		}
+		raw["transport"] = map[string]any{"type": "grpc", "service_name": serviceName}
+		return nil
+	default:
+		return fmt.Errorf("unsupported transport %q", transportType)
+	}
 }
 
 func validateURIIdentity(typeName string, parsed *url.URL) error {
