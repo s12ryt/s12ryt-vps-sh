@@ -675,7 +675,7 @@ update_ipv6_project_release() {
 }
 
 configure_ipv6_project_state() {
-    local project_root panel_binary
+    local project_root panel_binary init_system choice confirmation password password_confirmation
 
     check_ipv6_project_preflight || return 1
     project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
@@ -684,7 +684,99 @@ configure_ipv6_project_state() {
         printf '錯誤：IPv6 管理面板尚未安裝。\n' >&2
         return 1
     fi
-    S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" status
+    init_system="$(detect_ipv6_project_init)"
+
+    while true; do
+        printf '%s\n' \
+            '多 IPv6 出站設定' \
+            '1. 顯示面板狀態' \
+            '2. 安全隨機重設管理密碼' \
+            '3. 自訂管理密碼' \
+            '0. 返回'
+        choice=''
+        IFS= read -r choice || true
+        case "$choice" in
+            1)
+                S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" status || true
+                ;;
+            2)
+                printf '確認安全隨機重設管理密碼？[y/N] '
+                confirmation=''
+                IFS= read -r confirmation || true
+                if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
+                    printf '已取消管理密碼重設。\n'
+                    continue
+                fi
+                if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" reset-password --generate; then
+                    printf '錯誤：無法安全隨機重設管理密碼。\n' >&2
+                    continue
+                fi
+                restart_and_verify_ipv6_panel "$project_root" "$panel_binary" "$init_system" || true
+                ;;
+            3)
+                printf '輸入新的管理密碼（至少 24 位英數字）：'
+                password=''
+                IFS= read -r -s password || true
+                printf '\n再次輸入新的管理密碼：'
+                password_confirmation=''
+                IFS= read -r -s password_confirmation || true
+                printf '\n'
+                if [[ "$password" != "$password_confirmation" ]]; then
+                    printf '錯誤：兩次輸入的管理密碼不一致。\n' >&2
+                    continue
+                fi
+                if ! printf '%s\n' "$password" |
+                    S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" reset-password; then
+                    printf '錯誤：無法重設自訂管理密碼。\n' >&2
+                    continue
+                fi
+                restart_and_verify_ipv6_panel "$project_root" "$panel_binary" "$init_system" || true
+                ;;
+            0 | '')
+                return 0
+                ;;
+            *)
+                printf '錯誤：無效的設定選項。\n' >&2
+                ;;
+        esac
+    done
+}
+
+verify_ipv6_panel_health() {
+    local project_root="$1"
+    local panel_binary="$2"
+    local health_url health_response
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：缺少必要命令：curl。\n' >&2
+        return 1
+    fi
+    health_url="$(S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" health-url)" || health_url=''
+    if [[ ! "$health_url" =~ ^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9]+/healthz$ ]]; then
+        printf '錯誤：面板健康檢查 URL 無效。\n' >&2
+        return 1
+    fi
+    health_response="$(curl -fsS --connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 "$health_url")" || health_response=''
+    if [[ "$health_response" != *'"status":"ok"'* ]]; then
+        printf '錯誤：面板健康檢查失敗。\n' >&2
+        return 1
+    fi
+}
+
+restart_and_verify_ipv6_panel() {
+    local project_root="$1"
+    local panel_binary="$2"
+    local init_system="$3"
+
+    if ! restart_ipv6_project_service "$init_system"; then
+        printf '錯誤：管理密碼已更新，但面板服務重啟失敗。\n' >&2
+        return 1
+    fi
+    if ! verify_ipv6_panel_health "$project_root" "$panel_binary"; then
+        printf '錯誤：管理密碼已更新，但重啟後面板未通過健康檢查。\n' >&2
+        return 1
+    fi
+    printf '管理密碼重設完成；既有登入工作階段已撤銷。\n'
 }
 
 uninstall_ipv6_project_state() {
