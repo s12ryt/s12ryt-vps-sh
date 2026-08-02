@@ -348,6 +348,7 @@ func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 		`full_client_base64`,
 		`qr_url`,
 		`clearShareSecrets`,
+		`@media(max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}.grid>*{grid-column:1!important;min-width:0}}`,
 		`X-CSRF-Token`,
 		`X-S12ryt-Confirm`,
 	} {
