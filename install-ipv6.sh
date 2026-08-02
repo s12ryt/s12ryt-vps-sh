@@ -694,7 +694,7 @@ uninstall_ipv6_project_state() {
     fi
 
     if [[ "$choice" == "1" ]]; then
-        rm -rf -- "${project_root}/bin"
+        rm -rf -- "${project_root:?}/bin"
         printf '多 IPv6 出站已卸載；設定、機密與備份已保留。\n'
     else
         rm -rf -- "$project_root"
