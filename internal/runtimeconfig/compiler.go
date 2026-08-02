@@ -6,6 +6,7 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/singbox"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/topology"
 )
 
 type Input struct {
@@ -47,12 +48,6 @@ func CompileServerConfig(input Input) ([]byte, error) {
 			enabled = append(enabled, node)
 		}
 	}
-	if input.Config.Routing.Topology == domain.TopologySingleIPv6SingleNode {
-		if len(enabled) != 1 || len(input.IPv6Outbounds) != 1 {
-			return nil, fmt.Errorf("single IPv6 single node topology requires exactly one enabled node and one IPv6 outbound")
-		}
-	}
-
 	serverNodes := make([]singbox.InboundNode, 0, len(enabled))
 	for _, node := range enabled {
 		deployment, exists := deployments[node.ID]
@@ -70,10 +65,65 @@ func CompileServerConfig(input Input) ([]byte, error) {
 		})
 	}
 
+	resolvedOutbounds := resolveIPv6Outbounds(input.IPv6Outbounds, enabled, deployments)
+	var routingPlan *topology.Plan
+	if len(enabled) > 0 {
+		candidates := make([]topology.OutboundCandidate, 0, len(resolvedOutbounds))
+		for index := range resolvedOutbounds {
+			candidates = append(candidates, topology.OutboundCandidate{
+				Tag:  fmt.Sprintf("direct-v6-%d", index+1),
+				Kind: topology.CandidateDirectIPv6,
+			})
+		}
+		var ipv4Candidates []string
+		if input.Config.Routing.Mode == domain.RoutingModeVPSIPv4 {
+			ipv4Candidates = []string{"direct-v4"}
+		}
+		plan, err := topology.BuildPlan(topology.Input{
+			Config:             input.Config,
+			OutboundCandidates: candidates,
+			IPv4Candidates:     ipv4Candidates,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build runtime routing plan: %w", err)
+		}
+		routingPlan = &plan
+	}
+
 	return singbox.GenerateServerConfig(singbox.ServerInput{
 		Nodes:         serverNodes,
-		IPv6Outbounds: append([]netip.Addr(nil), input.IPv6Outbounds...),
+		IPv6Outbounds: resolvedOutbounds,
+		RoutingPlan:   routingPlan,
 	})
+}
+
+func resolveIPv6Outbounds(
+	explicit []netip.Addr,
+	enabled []domain.Node,
+	deployments map[string]NodeDeployment,
+) []netip.Addr {
+	if len(explicit) > 0 {
+		return append([]netip.Addr(nil), explicit...)
+	}
+	result := make([]netip.Addr, 0, len(enabled))
+	seen := make(map[netip.Addr]struct{}, len(enabled))
+	for _, node := range enabled {
+		deployment, exists := deployments[node.ID]
+		if !exists {
+			continue
+		}
+		for _, listener := range deployment.Listeners {
+			if !listener.Is6() || !listener.IsGlobalUnicast() {
+				continue
+			}
+			if _, duplicate := seen[listener]; duplicate {
+				continue
+			}
+			seen[listener] = struct{}{}
+			result = append(result, listener)
+		}
+	}
+	return result
 }
 
 func mapCredential(credential domain.NodeCredential) singbox.Credential {
