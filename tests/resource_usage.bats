@@ -25,12 +25,14 @@ setup() {
 @test "資源驗收拒絕非 root 與縮短穩定時間" {
   run /usr/bin/env \
     S12RYT_RESOURCE_EFFECTIVE_UID=1000 \
+    S12RYT_RESOURCE_SOURCE_ONLY=0 \
     /bin/bash "$PROJECT_ROOT/scripts/verify-resource-usage.sh" verify missing-panel missing-profile
   [ "$status" -ne 0 ]
   [[ "$output" == *"資源驗收必須以 root 執行"* ]]
 
   run /usr/bin/env \
     S12RYT_RESOURCE_EFFECTIVE_UID=0 \
+    S12RYT_RESOURCE_SOURCE_ONLY=0 \
     S12RYT_RESOURCE_STABLE_SECONDS=59 \
     /bin/bash "$PROJECT_ROOT/scripts/verify-resource-usage.sh" verify missing-panel missing-profile
   [ "$status" -ne 0 ]
