@@ -249,8 +249,8 @@ EOF
     [ -s "${bundle}/SHA256SUMS" ]
     [ -s "${bundle}/sing-box-1.13.15-linux-amd64.tar.gz" ]
     grep -Fq -- '--connect-timeout 5 --max-time 60' "$MOCK_LOG"
-    grep -Fq 'https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v1.1.0/s12ryt-ipv6-linux-amd64' "$MOCK_LOG"
-    grep -Fq 'https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v1.1.0/SHA256SUMS' "$MOCK_LOG"
+    grep -Fq 'https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v1.1.1/s12ryt-ipv6-linux-amd64' "$MOCK_LOG"
+    grep -Fq 'https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v1.1.1/SHA256SUMS' "$MOCK_LOG"
     grep -Fq 'https://github.com/SagerNet/sing-box/releases/download/v1.13.15/sing-box-1.13.15-linux-amd64.tar.gz' "$MOCK_LOG"
 }
 
