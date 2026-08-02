@@ -1288,7 +1288,10 @@ update_ipv6_project() {
 }
 
 configure_ipv6_project() {
-    not_implemented
+    local helper
+
+    helper="$(ensure_ipv6_helper)" || return 1
+    bash "$helper" configure
 }
 
 uninstall_ipv6_project() {
