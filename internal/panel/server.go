@@ -1,17 +1,27 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 )
 
 const SessionCookieName = "s12ryt_panel_session"
+
+const maxConfigBodySize = 1 << 20
+
+type ConfigStore interface {
+	Save(domain.Config) error
+}
 
 type Options struct {
 	BasePath     string
@@ -20,6 +30,7 @@ type Options struct {
 	Sessions     *auth.SessionManager
 	Limiter      *auth.LoginLimiter
 	Config       domain.Config
+	Store        ConfigStore
 }
 
 type Server struct {
@@ -28,7 +39,9 @@ type Server struct {
 	hasher       *auth.PasswordHasher
 	sessions     *auth.SessionManager
 	limiter      *auth.LoginLimiter
+	mutex        sync.RWMutex
 	config       domain.Config
+	store        ConfigStore
 }
 
 func NewServer(options Options) *Server {
@@ -39,6 +52,7 @@ func NewServer(options Options) *Server {
 		sessions:     options.Sessions,
 		limiter:      options.Limiter,
 		config:       options.Config,
+		store:        options.Store,
 	}
 }
 
@@ -54,6 +68,10 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 		server.handleLogin(response, request)
 	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/config/validate":
 		server.validateConfigRequest(response, request)
+	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/api/config":
+		server.getConfig(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/config/apply":
+		server.applyConfig(response, request)
 	default:
 		http.NotFound(response, request)
 	}
@@ -108,23 +126,110 @@ func (server *Server) handleLogin(response http.ResponseWriter, request *http.Re
 }
 
 func (server *Server) validateConfigRequest(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeStateChange(response, request) {
+		return
+	}
+	candidate, valid := decodeCandidateConfig(response, request)
+	if !valid {
+		return
+	}
+	server.mutex.RLock()
+	changed := !reflect.DeepEqual(server.config, candidate)
+	server.mutex.RUnlock()
+	writeJSON(response, http.StatusOK, map[string]bool{"changed": changed, "valid": true})
+}
+
+func (server *Server) getConfig(response http.ResponseWriter, request *http.Request) {
+	if _, valid := server.requestSession(request); !valid {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	server.mutex.RLock()
+	config := server.config
+	server.mutex.RUnlock()
+	writeJSON(response, http.StatusOK, config)
+}
+
+func (server *Server) applyConfig(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeStateChange(response, request) {
+		return
+	}
+	if request.Header.Get("X-S12ryt-Confirm") != "apply" {
+		http.Error(response, "套用設定需要明確確認。", http.StatusConflict)
+		return
+	}
+	candidate, valid := decodeCandidateConfig(response, request)
+	if !valid {
+		return
+	}
+	if server.store == nil {
+		http.Error(response, "設定儲存服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	if err := server.store.Save(candidate); err != nil {
+		http.Error(response, "無法保存設定。", http.StatusInternalServerError)
+		return
+	}
+	server.mutex.Lock()
+	server.config = candidate
+	server.mutex.Unlock()
+	writeJSON(response, http.StatusOK, map[string]bool{"applied": true})
+}
+
+func (server *Server) authorizeStateChange(response http.ResponseWriter, request *http.Request) bool {
 	cookie, err := request.Cookie(SessionCookieName)
 	if err != nil {
 		http.Error(response, "需要登入。", http.StatusUnauthorized)
-		return
+		return false
 	}
 	clientIP := requestClientIP(request)
 	if _, valid := server.sessions.Lookup(cookie.Value, clientIP); !valid {
 		http.Error(response, "登入工作階段無效。", http.StatusUnauthorized)
-		return
+		return false
 	}
 	if !server.sessions.Validate(cookie.Value, request.Header.Get("X-CSRF-Token"), clientIP) {
 		http.Error(response, "CSRF 驗證失敗。", http.StatusForbidden)
-		return
+		return false
 	}
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusOK)
-	_, _ = response.Write([]byte(`{"valid":true}`))
+	return true
+}
+
+func decodeCandidateConfig(response http.ResponseWriter, request *http.Request) (domain.Config, bool) {
+	request.Body = http.MaxBytesReader(response, request.Body, maxConfigBodySize)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var candidate domain.Config
+	if err := decoder.Decode(&candidate); err != nil {
+		http.Error(response, "設定 JSON 無效。", http.StatusBadRequest)
+		return domain.Config{}, false
+	}
+	if err := ensureJSONEnd(decoder); err != nil {
+		http.Error(response, "設定 JSON 只能包含一個物件。", http.StatusBadRequest)
+		return domain.Config{}, false
+	}
+	if err := candidate.Validate(); err != nil {
+		http.Error(response, "設定驗證失敗："+err.Error(), http.StatusUnprocessableEntity)
+		return domain.Config{}, false
+	}
+	return candidate, true
+}
+
+func ensureJSONEnd(decoder *json.Decoder) error {
+	var extra any
+	err := decoder.Decode(&extra)
+	if err == io.EOF {
+		return nil
+	}
+	if err == nil {
+		return fmt.Errorf("unexpected additional JSON value")
+	}
+	return err
+}
+
+func writeJSON(response http.ResponseWriter, status int, value any) {
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.WriteHeader(status)
+	_ = json.NewEncoder(response).Encode(value)
 }
 
 func (server *Server) requestSession(request *http.Request) (auth.Session, bool) {
