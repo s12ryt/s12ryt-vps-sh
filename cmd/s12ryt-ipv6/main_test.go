@@ -397,6 +397,151 @@ func TestRunHealthURLCommandPrintsLoopbackEndpointOnly(t *testing.T) {
 	}
 }
 
+func TestRunResetPasswordCommandReplacesProtectedCredentials(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	initial, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3d}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	newPassword := "NewManagementPassword1234"
+	var output bytes.Buffer
+	err = runCommand([]string{"reset-password"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3e}, 64)),
+		Input:       strings.NewReader(newPassword + "\n"),
+		Output:      &output,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(reset-password) error = %v", err)
+	}
+	if output.String() != "管理密碼已重設："+newPassword+"\n" {
+		t.Fatalf("reset output = %q", output.String())
+	}
+	assertStoredManagementPassword(t, projectRoot, newPassword, initial.Password)
+}
+
+func TestRunResetPasswordCommandGeneratesProtectedCredential(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	if _, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x3f}, 512)),
+	}); err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	var output bytes.Buffer
+	err := runCommand([]string{"reset-password", "--generate"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x40}, 128)),
+		Output:      &output,
+	})
+	if err != nil {
+		t.Fatalf("runCommand(reset-password --generate) error = %v", err)
+	}
+	match := regexp.MustCompile(`^管理密碼已重設：([A-Za-z0-9]{24})\n$`).FindStringSubmatch(output.String())
+	if len(match) != 2 {
+		t.Fatalf("generated reset output = %q", output.String())
+	}
+	assertStoredManagementPassword(t, projectRoot, match[1], "")
+}
+
+func TestRunResetPasswordCommandRejectsUnsafeCustomPasswordWithoutChanges(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	initial, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x41}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	hashPath := filepath.Join(projectRoot, "secrets", "password.hash")
+	plainPath := filepath.Join(projectRoot, "secrets", "management.password")
+	oldHash, _ := os.ReadFile(hashPath)
+	oldPlain, _ := os.ReadFile(plainPath)
+
+	err = runCommand([]string{"reset-password"}, commandOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x42}, 64)),
+		Input:       strings.NewReader("short password!\n"),
+		Output:      &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "至少 24 位英數字") {
+		t.Fatalf("runCommand(reset-password) error = %v", err)
+	}
+	newHash, _ := os.ReadFile(hashPath)
+	newPlain, _ := os.ReadFile(plainPath)
+	if !bytes.Equal(newHash, oldHash) || !bytes.Equal(newPlain, oldPlain) {
+		t.Fatalf("unsafe password changed credentials: hash=%t plain=%t", bytes.Equal(newHash, oldHash), bytes.Equal(newPlain, oldPlain))
+	}
+	assertStoredManagementPassword(t, projectRoot, initial.Password, "")
+}
+
+func TestResetManagementPasswordRollsBackBothFilesWhenCommitFails(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	initial, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x43}, 512)),
+	})
+	if err != nil {
+		t.Fatalf("initializeProject() error = %v", err)
+	}
+	sentinel := errors.New("plaintext commit failed")
+	failed := false
+	_, err = resetManagementPassword(passwordResetOptions{
+		ProjectRoot: projectRoot,
+		Password:    "ReplacementPassword123456",
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x44}, 64)),
+		Rename: func(oldPath string, newPath string) error {
+			if !failed && newPath == filepath.Join(projectRoot, "secrets", "management.password") {
+				failed = true
+				return sentinel
+			}
+			return os.Rename(oldPath, newPath)
+		},
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("resetManagementPassword() error = %v, want sentinel", err)
+	}
+	assertStoredManagementPassword(t, projectRoot, initial.Password, "ReplacementPassword123456")
+	matches, globErr := filepath.Glob(filepath.Join(projectRoot, "secrets", ".management-credentials.*"))
+	if globErr != nil || len(matches) != 0 {
+		t.Fatalf("credential temporary files = %#v, %v", matches, globErr)
+	}
+}
+
+func assertStoredManagementPassword(t *testing.T, projectRoot string, expected string, rejected string) {
+	t.Helper()
+	hashPath := filepath.Join(projectRoot, "secrets", "password.hash")
+	plainPath := filepath.Join(projectRoot, "secrets", "management.password")
+	for _, path := range []string{hashPath, plainPath} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("protected credential %s mode = %v, %v", path, info, err)
+		}
+	}
+	plain, err := readProtectedSecret(plainPath, "管理密碼")
+	if err != nil || plain != expected {
+		t.Fatalf("plaintext credential = %q, %v, want %q", plain, err, expected)
+	}
+	encoded, err := readProtectedPasswordHash(hashPath)
+	if err != nil {
+		t.Fatalf("read password hash: %v", err)
+	}
+	hasher := auth.NewPasswordHasher(nil)
+	verified, err := hasher.Verify(encoded, expected)
+	if err != nil || !verified {
+		t.Fatalf("Verify(expected password) = %t, %v", verified, err)
+	}
+	if rejected != "" {
+		verified, err = hasher.Verify(encoded, rejected)
+		if err != nil || verified {
+			t.Fatalf("Verify(rejected password) = %t, %v", verified, err)
+		}
+	}
+}
+
 func TestRunCleanupSystemCommandDelegatesToIntegrationCleaner(t *testing.T) {
 	contextKey := struct{}{}
 	ctx := context.WithValue(context.Background(), contextKey, "cleanup")
