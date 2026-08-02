@@ -86,6 +86,9 @@ if [[ "${1:-}" == "init" ]]; then
     printf 'protected-hash\n' > "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
     printf 'GeneratedPassword12345678\n' > "${S12RYT_PROJECT_ROOT}/secrets/management.password"
 fi
+if [[ "${1:-}" == "health-url" ]]; then
+    printf 'http://127.0.0.1:34456/abcdefghijkl/healthz\n'
+fi
 EOF
     chmod +x "${bundle}/s12ryt-ipv6-linux-amd64"
     cat > "${archive_root}/sing-box-1.13.15-linux-amd64/sing-box" <<'EOF'
@@ -96,6 +99,41 @@ EOF
     /usr/bin/tar -czf "${bundle}/sing-box-1.13.15-linux-amd64.tar.gz" \
         -C "$archive_root" sing-box-1.13.15-linux-amd64
     rm -rf "$archive_root"
+}
+
+create_installed_ipv6_project() {
+    mkdir -p "${S12RYT_PROJECT_ROOT}/bin" "${S12RYT_PROJECT_ROOT}/config" \
+        "${S12RYT_PROJECT_ROOT}/secrets"
+    cat > "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" <<'EOF'
+#!/bin/bash
+printf 'old-panel %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    cat > "${S12RYT_PROJECT_ROOT}/bin/sing-box" <<'EOF'
+#!/bin/bash
+printf 'old-sing-box %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod 0755 "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" "${S12RYT_PROJECT_ROOT}/bin/sing-box"
+    printf '{"schema_version":1,"sentinel":"old-config"}\n' > "${S12RYT_PROJECT_ROOT}/config/config.json"
+    printf '{"log":{"level":"warn"}}\n' > "${S12RYT_PROJECT_ROOT}/config/sing-box.json"
+    printf 'protected-hash\n' > "${S12RYT_PROJECT_ROOT}/secrets/password.hash"
+    printf 'GeneratedPassword12345678\n' > "${S12RYT_PROJECT_ROOT}/secrets/management.password"
+    chmod 0600 "${S12RYT_PROJECT_ROOT}/config/config.json" \
+        "${S12RYT_PROJECT_ROOT}/config/sing-box.json" \
+        "${S12RYT_PROJECT_ROOT}/secrets/password.hash" \
+        "${S12RYT_PROJECT_ROOT}/secrets/management.password"
+}
+
+create_ipv6_health_curl_mock() {
+    cat > "${MOCK_BIN}/curl" <<'EOF'
+#!/bin/bash
+set -eu
+printf 'curl %s\n' "$*" >> "$MOCK_LOG"
+if [[ "${S12RYT_HEALTH_MODE:-success}" == "fail" ]]; then
+    exit 22
+fi
+printf '{"status":"ok"}\n'
+EOF
+    chmod 0755 "${MOCK_BIN}/curl"
 }
 
 @test "IPv6 專案只接受 Linux root systemd 或 OpenRC 與支援架構" {
@@ -385,4 +423,61 @@ EOF
     grep -Eq '^fetch .*/s12ryt-ipv6-bundle\.[^ ]+ amd64$' "$MOCK_LOG"
     grep -Eq '^install .*/s12ryt-ipv6-bundle\.[^ ]+ amd64 systemd$' "$MOCK_LOG"
     [ "$(find "$TEST_ROOT" -maxdepth 1 -name 's12ryt-ipv6-bundle.*' | wc -l)" -eq 0 ]
+}
+
+@test "systemd 更新會備份狀態驗證 sing-box 並通過面板健康檢查" {
+    create_installed_ipv6_project
+    create_command_mock systemctl
+    create_ipv6_health_curl_mock
+    local bundle="${TEST_ROOT}/update-bundle"
+    create_verified_ipv6_bundle "$bundle"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        /bin/bash -c 'source "$1"; update_verified_ipv6_bundle "$2" amd64 systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -eq 0 ]
+    grep -Fq 'panel %s' "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6"
+    grep -Fq 'sing-box %s' "${S12RYT_PROJECT_ROOT}/bin/sing-box"
+    grep -Fq 'old-config' "${S12RYT_PROJECT_ROOT}/config/config.json"
+    local backup
+    backup="$(find "${S12RYT_PROJECT_ROOT}/backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    [ -n "$backup" ]
+    grep -Fq 'old-panel %s' "${backup}/bin/s12ryt-ipv6"
+    grep -Fq 'old-sing-box %s' "${backup}/bin/sing-box"
+    grep -Fq 'old-config' "${backup}/config/config.json"
+    grep -Fxq 'sing-box check -c '"${S12RYT_PROJECT_ROOT}"'/config/sing-box.json' "$MOCK_LOG"
+    grep -Fxq 'systemctl restart s12ryt-ipv6.service' "$MOCK_LOG"
+    grep -Fxq 'panel health-url' "$MOCK_LOG"
+    grep -Fq -- '--connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 http://127.0.0.1:34456/abcdefghijkl/healthz' "$MOCK_LOG"
+}
+
+@test "更新健康檢查失敗時會恢復舊 binary 設定並重啟舊服務" {
+    create_installed_ipv6_project
+    create_command_mock systemctl
+    create_ipv6_health_curl_mock
+    local bundle="${TEST_ROOT}/failed-update-bundle"
+    create_verified_ipv6_bundle "$bundle"
+    local old_panel_hash old_singbox_hash old_config_hash
+    old_panel_hash="$(sha256sum "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6")"
+    old_singbox_hash="$(sha256sum "${S12RYT_PROJECT_ROOT}/bin/sing-box")"
+    old_config_hash="$(sha256sum "${S12RYT_PROJECT_ROOT}/config/config.json")"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_HEALTH_MODE=fail \
+        /bin/bash -c 'source "$1"; update_verified_ipv6_bundle "$2" amd64 systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"健康檢查失敗，已恢復舊版本"* ]]
+    [ "$(sha256sum "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6")" = "$old_panel_hash" ]
+    [ "$(sha256sum "${S12RYT_PROJECT_ROOT}/bin/sing-box")" = "$old_singbox_hash" ]
+    [ "$(sha256sum "${S12RYT_PROJECT_ROOT}/config/config.json")" = "$old_config_hash" ]
+    [ "$(grep -Fxc 'systemctl restart s12ryt-ipv6.service' "$MOCK_LOG")" -eq 2 ]
 }
