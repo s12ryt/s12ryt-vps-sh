@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -17,6 +18,9 @@ import (
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/manifest"
+	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/networksetup"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/nodes"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 )
@@ -51,6 +55,11 @@ type RemoteManager interface {
 	SetIPv4Fallback([]string) error
 }
 
+type NetworkManager interface {
+	GlobalIPv6Addresses(context.Context) ([]projectnetwork.InterfaceAddress, error)
+	Apply(context.Context, networksetup.Request) (manifest.Manifest, error)
+}
+
 type Options struct {
 	BasePath      string
 	PasswordHash  string
@@ -61,6 +70,7 @@ type Options struct {
 	Store         ConfigStore
 	NodeManager   NodeManager
 	RemoteManager RemoteManager
+	NetworkManager NetworkManager
 	Clock         func() time.Time
 }
 
@@ -75,6 +85,7 @@ type Server struct {
 	store         ConfigStore
 	nodeManager   NodeManager
 	remoteManager RemoteManager
+	networkManager NetworkManager
 	clock         func() time.Time
 	elevationMu   sync.Mutex
 	elevations    map[string]time.Time
@@ -99,6 +110,7 @@ func NewServer(options Options) *Server {
 		store:         options.Store,
 		nodeManager:   options.NodeManager,
 		remoteManager: options.RemoteManager,
+		networkManager: options.NetworkManager,
 		clock:         clock,
 		elevations:    make(map[string]time.Time),
 	}
@@ -137,11 +149,94 @@ func (server *Server) serveHTTP(response http.ResponseWriter, request *http.Requ
 		server.handleNamedRemoteOutbound(response, request)
 	case request.Method == http.MethodPut && request.URL.Path == server.basePath+"/api/ipv4-fallback":
 		server.setIPv4Fallback(response, request)
+	case request.Method == http.MethodGet && request.URL.Path == server.basePath+"/api/network/addresses":
+		server.listNetworkAddresses(response, request)
+	case request.Method == http.MethodPost && request.URL.Path == server.basePath+"/api/network/apply":
+		server.applyNetworkIntegration(response, request)
 	case strings.HasPrefix(request.URL.Path, server.basePath+"/api/nodes/"):
 		server.handleNamedNode(response, request)
 	default:
 		http.NotFound(response, request)
 	}
+}
+
+type networkAddressSummary struct {
+	Interface string `json:"interface"`
+	Address   string `json:"address"`
+	Prefix    string `json:"prefix"`
+}
+
+type networkApplyRequest struct {
+	Interface       string                  `json:"interface"`
+	Prefix          string                  `json:"prefix"`
+	Count           int                     `json:"count"`
+	FirewallBackend string                  `json:"firewall_backend"`
+	PanelPort       int                     `json:"panel_port"`
+	AllowedCIDRs    []string                `json:"allowed_cidrs"`
+	NodePorts       []manifest.PortManifest `json:"node_ports"`
+}
+
+type networkApplyResponse struct {
+	Interface       string `json:"interface"`
+	AddressCount    int    `json:"address_count"`
+	FirewallBackend string `json:"firewall_backend"`
+}
+
+func (server *Server) listNetworkAddresses(response http.ResponseWriter, request *http.Request) {
+	if _, valid := server.requestSession(request); !valid {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return
+	}
+	if server.networkManager == nil {
+		http.Error(response, "網路整合服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	addresses, err := server.networkManager.GlobalIPv6Addresses(request.Context())
+	if err != nil {
+		http.Error(response, "無法取得全域 IPv6 地址。", http.StatusBadGateway)
+		return
+	}
+	summaries := make([]networkAddressSummary, 0, len(addresses))
+	for _, address := range addresses {
+		summaries = append(summaries, networkAddressSummary{
+			Interface: address.Interface,
+			Address:   projectnetwork.FormatIPv6Full(address.Prefix.Addr()),
+			Prefix:    address.Prefix.String(),
+		})
+	}
+	writeJSON(response, http.StatusOK, summaries)
+}
+
+func (server *Server) applyNetworkIntegration(response http.ResponseWriter, request *http.Request) {
+	if !server.authorizeStateChange(response, request) {
+		return
+	}
+	if request.Header.Get("X-S12ryt-Confirm") != "apply" {
+		http.Error(response, "網路整合變更需要明確確認。", http.StatusConflict)
+		return
+	}
+	if server.networkManager == nil {
+		http.Error(response, "網路整合服務不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	var input networkApplyRequest
+	if !decodeStrictJSON(response, request, &input) {
+		return
+	}
+	result, err := server.networkManager.Apply(request.Context(), networksetup.Request{
+		Interface: input.Interface, Prefix: input.Prefix, Count: input.Count,
+		FirewallBackend: input.FirewallBackend, PanelPort: input.PanelPort,
+		AllowedCIDRs: append([]string(nil), input.AllowedCIDRs...),
+		NodePorts:    append([]manifest.PortManifest(nil), input.NodePorts...),
+	})
+	if err != nil {
+		http.Error(response, "無法套用網路整合設定。", http.StatusUnprocessableEntity)
+		return
+	}
+	writeJSON(response, http.StatusOK, networkApplyResponse{
+		Interface: result.Interface, AddressCount: len(result.Addresses),
+		FirewallBackend: result.Firewall.Backend,
+	})
 }
 
 func (server *Server) showHealth(response http.ResponseWriter) {
