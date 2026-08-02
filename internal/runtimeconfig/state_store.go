@@ -222,7 +222,29 @@ func (node PersistedNodeDeployment) toRuntimeDeployment() NodeDeployment {
 }
 
 func (store *DeploymentStateStore) Load() (DeploymentState, error) {
-	data, err := os.ReadFile(store.path)
+	pathInfo, err := os.Lstat(store.path)
+	if err != nil {
+		return DeploymentState{}, fmt.Errorf("inspect deployment state: %w", err)
+	}
+	if !pathInfo.Mode().IsRegular() {
+		return DeploymentState{}, errors.New("deployment state must be a regular file")
+	}
+	if pathInfo.Mode().Perm() != 0o600 {
+		return DeploymentState{}, fmt.Errorf("deployment state permissions must be 0600, got %04o", pathInfo.Mode().Perm())
+	}
+	file, err := os.Open(store.path)
+	if err != nil {
+		return DeploymentState{}, fmt.Errorf("open deployment state: %w", err)
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return DeploymentState{}, fmt.Errorf("inspect opened deployment state: %w", err)
+	}
+	if !openedInfo.Mode().IsRegular() || openedInfo.Mode().Perm() != 0o600 || !os.SameFile(pathInfo, openedInfo) {
+		return DeploymentState{}, errors.New("deployment state changed during protected open")
+	}
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return DeploymentState{}, fmt.Errorf("read deployment state: %w", err)
 	}
