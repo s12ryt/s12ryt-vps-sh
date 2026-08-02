@@ -39,7 +39,7 @@ func TestExecRunnerExecutesAllowedCommandWithoutShellExpansion(t *testing.T) {
 
 func TestExecRunnerReportsExitFailureAndTimeout(t *testing.T) {
 	installSystemHelperCommand(t, "nft")
-	for name, timeout, mode, target := range map[string]struct {
+	for name, testCase := range map[string]struct {
 		timeout time.Duration
 		mode    string
 		target  error
@@ -49,19 +49,19 @@ func TestExecRunnerReportsExitFailureAndTimeout(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			runner, err := NewExecRunner(ExecRunnerOptions{Timeout: timeout, Output: &output})
+			runner, err := NewExecRunner(ExecRunnerOptions{Timeout: testCase.timeout, Output: &output})
 			if err != nil {
 				t.Fatalf("NewExecRunner() error = %v", err)
 			}
 			err = runner.Run(context.Background(), Command{
 				Name: "nft",
-				Args: []string{"-test.run=TestSystemExecHelperProcess", "--", mode, "value"},
+				Args: []string{"-test.run=TestSystemExecHelperProcess", "--", testCase.mode, "value"},
 			})
 			if err == nil {
 				t.Fatal("Run() error = nil, want failure")
 			}
-			if target != nil && !errors.Is(err, target) {
-				t.Fatalf("Run() error = %v, want %v", err, target)
+			if testCase.target != nil && !errors.Is(err, testCase.target) {
+				t.Fatalf("Run() error = %v, want %v", err, testCase.target)
 			}
 		})
 	}
