@@ -124,6 +124,59 @@ test('分享需重新驗證且關閉時清除秘密', async ({ page, context }) 
   await expect(page.locator('img[data-share-qr]')).toHaveCount(0);
 });
 
+test('狀態變更會停用控制、防止重複提交並可在失敗後重試', async ({ page }) => {
+  await login(page);
+  await page.getByRole('tab', { name: '分享' }).click();
+  await page.getByRole('button', { name: '驗證並查看分享' }).click();
+
+  const modal = page.locator('[data-modal="share-reveal"]');
+  const form = modal.locator('[data-share-form]');
+  const submit = modal.getByRole('button', { name: '驗證並揭露' });
+  const notice = page.locator('[data-operation-notice]');
+  let requests = 0;
+  let releaseFirst: (() => void) | undefined;
+  const firstRequest = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await page.route(`**${panelPath}/api/shares/reveal`, async (route) => {
+    requests += 1;
+    if (requests === 1) {
+      await firstRequest;
+      await route.fulfill({ status: 503, contentType: 'text/plain', body: '暫時無法取得分享' });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nodes: [], subscription: '', expires_in_seconds: 300 }),
+    });
+  });
+
+  await modal.getByLabel('管理密碼').fill('panel-password');
+  await submit.click();
+  try {
+    await expect(form).toHaveAttribute('aria-busy', 'true');
+    await expect(submit).toBeDisabled();
+    await expect(notice).toContainText('處理中');
+    await submit.evaluate((button: HTMLButtonElement) => button.click());
+    await expect.poll(() => requests).toBe(1);
+  } finally {
+    releaseFirst?.();
+  }
+
+  await expect(submit).toBeEnabled();
+  await expect(form).not.toHaveAttribute('aria-busy', 'true');
+  await expect(modal.locator('[data-share-error]')).toContainText('暫時無法取得分享');
+  await expect(notice).toContainText('操作失敗');
+
+  await modal.getByLabel('管理密碼').fill('panel-password');
+  await submit.click();
+  await expect.poll(() => requests).toBe(2);
+  await expect(submit).toBeEnabled();
+  await expect(notice).toContainText('操作已完成');
+});
+
 test('版面無水平溢出或主要導覽重疊且不載入外部資產', async ({ page }) => {
   const externalRequests: string[] = [];
   page.on('request', (request) => {
