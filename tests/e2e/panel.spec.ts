@@ -17,12 +17,12 @@ test('登入錯誤與成功路徑都可觀察', async ({ page }) => {
   await expect(page.locator('body')).toContainText('密碼錯誤');
 
   await login(page);
-  await expect(page).toHaveURL(new RegExp(`${panelPath}$`));
+  await expect(page).toHaveURL(new RegExp(`${panelPath}#strategy$`));
 });
 
 test('導覽順序與 static backdrop 契約成立', async ({ page }) => {
   await login(page);
-  await expect(page.locator('nav button')).toHaveText(['出口模式', '拓撲', '協議']);
+  await expect(page.locator('[data-strategy-actions] button')).toHaveText(['出口模式', '拓撲', '協議']);
 
   await page.getByRole('button', { name: '出口模式' }).click();
   const modal = page.locator('[data-modal="routing"]');
@@ -31,6 +31,54 @@ test('導覽順序與 static backdrop 契約成立', async ({ page }) => {
   await expect(modal).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(modal).toBeHidden();
+});
+
+test('五工作區支援 hash、瀏覽器歷史與響應式導覽', async ({ page }, testInfo) => {
+  await login(page);
+  const tabs = page.getByRole('tablist', { name: '工作區導覽' }).getByRole('tab');
+  await expect(tabs).toHaveText(['策略', '節點', '遠端出口', '網路', '分享']);
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+  await expect(page.getByRole('tabpanel', { name: '策略' })).toBeVisible();
+
+  await page.getByRole('tab', { name: '節點' }).click();
+  await expect(page).toHaveURL(new RegExp(`${panelPath}#nodes$`));
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+  await expect(page.getByRole('tabpanel', { name: '節點' })).toBeVisible();
+
+  await page.getByRole('tab', { name: '網路' }).click();
+  await expect(page).toHaveURL(new RegExp(`${panelPath}#network$`));
+  await expect(page.getByRole('tabpanel', { name: '網路' })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${panelPath}#nodes$`));
+  await expect(page.getByRole('tabpanel', { name: '節點' })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole('tabpanel', { name: '網路' })).toBeVisible();
+
+  await page.goto(`${panelPath}#shares`);
+  await expect(page.getByRole('tabpanel', { name: '分享' })).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+
+  const navigation = await page.locator('.workspace-nav').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      flexDirection: style.flexDirection,
+      overflowX: style.overflowX,
+      position: style.position,
+    };
+  });
+  const theme = await page.evaluate(() => ({
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
+    background: getComputedStyle(document.body).backgroundColor,
+  }));
+  expect(theme.colorScheme).toBe('dark');
+  expect(theme.background).not.toBe('rgb(255, 255, 255)');
+  if (testInfo.project.name === 'mobile-chromium') {
+    expect(navigation.flexDirection).toBe('row');
+    expect(['auto', 'scroll']).toContain(navigation.overflowX);
+  } else {
+    expect(navigation.flexDirection).toBe('column');
+    expect(navigation.position).toBe('sticky');
+  }
 });
 
 test('缺少 CSRF 的狀態變更會被拒絕', async ({ page }) => {

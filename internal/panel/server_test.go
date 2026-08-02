@@ -215,6 +215,52 @@ func TestDashboardUsesRequiredNavigationOrderAndModalContract(t *testing.T) {
 	}
 }
 
+func TestDashboardProvidesDarkFiveWorkspaceNavigation(t *testing.T) {
+	server := newTestServer(t)
+	cookie, _ := authenticatedSession(t, server, "198.51.100.8")
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	request.AddCookie(cookie)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("dashboard status = %d, want 200", response.Code)
+	}
+	body := response.Body.String()
+
+	for _, expected := range []string{
+		`data-ui-theme="noc"`,
+		`color-scheme:dark`,
+		`class="workspace-nav"`,
+		`role="tablist"`,
+		`role="tab" id="workspace-tab-strategy"`,
+		`role="tab" id="workspace-tab-nodes"`,
+		`role="tab" id="workspace-tab-remotes"`,
+		`role="tab" id="workspace-tab-network"`,
+		`role="tab" id="workspace-tab-shares"`,
+		`data-workspace="strategy"`,
+		`data-workspace="nodes"`,
+		`data-workspace="remotes"`,
+		`data-workspace="network"`,
+		`data-workspace="shares"`,
+		`#strategy`,
+		`#nodes`,
+		`#remotes`,
+		`#network`,
+		`#shares`,
+		`addEventListener('hashchange'`,
+		`history.replaceState`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("dashboard missing workspace marker %q", expected)
+		}
+	}
+	if strings.Count(body, `role="tabpanel"`) != 5 {
+		t.Fatalf("workspace panel count = %d, want 5", strings.Count(body, `role="tabpanel"`))
+	}
+}
+
 func TestDashboardProvidesModeTopologyAndProtocolConfiguration(t *testing.T) {
 	server := newTestServer(t)
 	cookie, _ := authenticatedSession(t, server, "198.51.100.8")
