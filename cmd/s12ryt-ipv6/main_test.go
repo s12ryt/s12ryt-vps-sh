@@ -21,6 +21,7 @@ import (
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 	projectnetwork "github.com/s12ryt/s12ryt-vps-sh/internal/network"
+	"github.com/s12ryt/s12ryt-vps-sh/internal/runtimeconfig"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/store"
 )
 
@@ -107,13 +108,64 @@ func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
 	if string(plainPassword) != result.Password+"\n" {
 		t.Fatalf("stored plaintext password = %q, want generated password", plainPassword)
 	}
-	for _, directory := range []string{filepath.Join(projectRoot, "config"), filepath.Join(projectRoot, "secrets")} {
+	runtimeStatePath := filepath.Join(projectRoot, "state", "runtime.json")
+	runtimeStateStore, err := runtimeconfig.NewDeploymentStateStore(runtimeStatePath)
+	if err != nil {
+		t.Fatalf("NewDeploymentStateStore() error = %v", err)
+	}
+	runtimeState, err := runtimeStateStore.Load()
+	if err != nil {
+		t.Fatalf("load initialized runtime state: %v", err)
+	}
+	if runtimeState.SchemaVersion != runtimeconfig.DeploymentStateSchemaVersion || len(runtimeState.Nodes) != 0 || len(runtimeState.IPv6Outbounds) != 0 {
+		t.Fatalf("initialized runtime state = %#v, want empty schema state", runtimeState)
+	}
+	if info, err := os.Stat(runtimeStatePath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("runtime state mode = %v, %v, want 0600", info, err)
+	}
+	for _, directory := range []string{
+		filepath.Join(projectRoot, "config"),
+		filepath.Join(projectRoot, "secrets"),
+		filepath.Join(projectRoot, "state"),
+	} {
 		info, err := os.Stat(directory)
 		if err != nil {
 			t.Fatalf("stat protected directory: %v", err)
 		}
 		if info.Mode().Perm() != 0o700 {
 			t.Fatalf("directory %s mode = %04o, want 0700", directory, info.Mode().Perm())
+		}
+	}
+}
+
+func TestInitializeProjectRefusesToOverwriteRuntimeDeploymentState(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	runtimeStatePath := filepath.Join(projectRoot, "state", "runtime.json")
+	if err := os.MkdirAll(filepath.Dir(runtimeStatePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(runtimeStatePath, []byte("sentinel\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x39}, 512)),
+	})
+	if err == nil {
+		t.Fatal("initializeProject() overwrote existing runtime state")
+	}
+	contents, readErr := os.ReadFile(runtimeStatePath)
+	if readErr != nil || string(contents) != "sentinel\n" {
+		t.Fatalf("existing runtime state = %q, %v", contents, readErr)
+	}
+	for _, path := range []string{
+		filepath.Join(projectRoot, "config", "config.json"),
+		filepath.Join(projectRoot, "secrets", "password.hash"),
+		filepath.Join(projectRoot, "secrets", "management.password"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("initialization created %s after refusal: %v", path, statErr)
 		}
 	}
 }
