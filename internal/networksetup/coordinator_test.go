@@ -26,10 +26,7 @@ func TestCoordinatorDiscoversGeneratesAndAppliesProtectedIntegrationManifest(t *
 	coordinator, err := NewCoordinator(CoordinatorOptions{
 		Discovery: discovery,
 		Applier:   applier,
-		Entropy: bytes.NewReader(append(
-			entropyAddress(1),
-			append(entropyAddress(2), entropyAddress(3)...)...,
-		)),
+		Entropy: bytes.NewReader(entropyAddresses(1, 2, 3)),
 	})
 	if err != nil {
 		t.Fatalf("NewCoordinator() error = %v", err)
@@ -83,7 +80,7 @@ func TestCoordinatorRejectsUnsafeRequestBeforeDiscoveryOrApply(t *testing.T) {
 			coordinator, err := NewCoordinator(CoordinatorOptions{
 				Discovery: &recordingDiscovery{events: &events},
 				Applier:   &recordingApplier{events: &events},
-				Entropy:   bytes.NewReader(entropyAddress(1)),
+				Entropy:   bytes.NewReader(entropyAddresses(1, 2)),
 			})
 			if err != nil {
 				t.Fatalf("NewCoordinator() error = %v", err)
@@ -137,7 +134,7 @@ func TestCoordinatorPreservesDiscoveryEntropyAndApplyErrors(t *testing.T) {
 			options: CoordinatorOptions{
 				Discovery: &recordingDiscovery{gateway: netip.MustParseAddr("fe80::1")},
 				Applier:   &recordingApplier{err: applyErr},
-				Entropy:   bytes.NewReader(entropyAddress(1)),
+				Entropy:   bytes.NewReader(entropyAddresses(1, 2)),
 			},
 			want: applyErr,
 		},
@@ -240,4 +237,12 @@ func entropyAddress(last byte) []byte {
 	value := make([]byte, 16)
 	value[len(value)-1] = last
 	return value
+}
+
+func entropyAddresses(values ...byte) []byte {
+	result := make([]byte, 0, len(values)*16)
+	for _, value := range values {
+		result = append(result, entropyAddress(value)...)
+	}
+	return result
 }
