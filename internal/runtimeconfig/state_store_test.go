@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
 )
 
 func TestDeploymentStateStoreSavesLoadsProtectedStateAndResolvesInput(t *testing.T) {
