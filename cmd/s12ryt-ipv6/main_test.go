@@ -436,14 +436,25 @@ func TestLoadApplicationRejectsMissingEnabledNodeDeployment(t *testing.T) {
 func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	checker := &runtimePortChecker{}
+	runtime := &stubRuntime{}
+	validationCalls := 0
 	application, err := loadApplication(runtimeOptions{
 		ConfigPath:             paths.config,
 		PasswordHashPath:       paths.passwordHash,
 		RuntimeStatePath:       paths.runtimeState,
+		RuntimeConfigPath:      paths.runtimeConfig,
 		Entropy:                bytes.NewReader(bytes.Repeat([]byte{0x31}, 512)),
 		Clock:                  func() time.Time { return time.Unix(1_800_000_000, 0) },
 		PortChecker:            checker,
 		PortAllocationAttempts: 4,
+		Runtime:                runtime,
+		ValidateRuntime: func(payload []byte) error {
+			validationCalls++
+			if !bytes.Contains(payload, []byte("runtime-vless")) {
+				return errors.New("candidate runtime config missing node")
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("loadApplication returned error: %v", err)
@@ -485,12 +496,28 @@ func TestLoadApplicationWiresManagedNodeCreationToPortChecker(t *testing.T) {
 	if checker.checks[0].port < 20000 || checker.checks[0].port > 49999 {
 		t.Fatalf("allocated port = %d, want 20000-49999", checker.checks[0].port)
 	}
+	if validationCalls != 1 || runtime.reloads != 1 || runtime.healthChecks != 1 {
+		t.Fatalf("runtime validation/reload/health = %d/%d/%d, want 1/1/1", validationCalls, runtime.reloads, runtime.healthChecks)
+	}
+	storedConfig, err := store.NewConfigStore(paths.config).Load()
+	if err != nil || len(storedConfig.Nodes) != 1 || storedConfig.Nodes[0].ID != "runtime-vless" {
+		t.Fatalf("stored configuration = %#v, %v", storedConfig, err)
+	}
+	stateStore, err := runtimeconfig.NewDeploymentStateStore(paths.runtimeState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedState, err := stateStore.Load()
+	if err != nil || len(storedState.Nodes) != 1 || storedState.Nodes[0].NodeID != "runtime-vless" {
+		t.Fatalf("stored runtime state = %#v, %v", storedState, err)
+	}
 }
 
 func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	paths := writeRuntimeFiles(t, 0o600)
 	listener := &stubListener{}
 	server := newStubHTTPServer()
+	runtime := &stubRuntime{}
 	var network, address string
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -500,8 +527,11 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 			ConfigPath:       paths.config,
 			PasswordHashPath: paths.passwordHash,
 			RuntimeStatePath: paths.runtimeState,
+			RuntimeConfigPath: paths.runtimeConfig,
 			Entropy:          bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
 			Clock:            func() time.Time { return time.Unix(1_800_000_000, 0) },
+			Runtime:          runtime,
+			ValidateRuntime:  func([]byte) error { return nil },
 			Listen: func(gotNetwork string, gotAddress string) (net.Listener, error) {
 				network, address = gotNetwork, gotAddress
 				return listener, nil
@@ -520,6 +550,9 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	if network != "tcp" || address != "[::]:34456" {
 		t.Fatalf("listen = %q %q, want tcp [::]:34456", network, address)
 	}
+	if runtime.starts != 1 {
+		t.Fatalf("runtime starts = %d, want 1", runtime.starts)
+	}
 
 	cancel()
 	select {
@@ -533,12 +566,16 @@ func TestRunApplicationListensOnDualStackAndShutsDownGracefully(t *testing.T) {
 	if !server.wasShutdown() {
 		t.Fatal("HTTP server was not shut down gracefully")
 	}
+	if runtime.stops != 1 {
+		t.Fatalf("runtime stops = %d, want 1", runtime.stops)
+	}
 }
 
 type runtimePaths struct {
-	config       string
-	passwordHash string
-	runtimeState string
+	config        string
+	passwordHash  string
+	runtimeState  string
+	runtimeConfig string
 }
 
 func writeRuntimeFiles(t *testing.T, passwordMode os.FileMode) runtimePaths {
@@ -563,14 +600,32 @@ func writeRuntimeFiles(t *testing.T, passwordMode os.FileMode) runtimePaths {
 	if err != nil {
 		t.Fatalf("NewDeploymentStateStore() error = %v", err)
 	}
-	if err := runtimeStateStore.Save(runtimeconfig.DeploymentState{
+	initialState := runtimeconfig.DeploymentState{
 		SchemaVersion: runtimeconfig.DeploymentStateSchemaVersion,
 		Nodes:         make([]runtimeconfig.PersistedNodeDeployment, 0),
 		IPv6Outbounds: make([]netip.Addr, 0),
-	}); err != nil {
+	}
+	if err := runtimeStateStore.Save(initialState); err != nil {
 		t.Fatalf("Save(runtime state) error = %v", err)
 	}
-	return runtimePaths{config: configPath, passwordHash: passwordPath, runtimeState: runtimeStatePath}
+	runtimeInput, err := initialState.Resolve(domain.DefaultConfig())
+	if err != nil {
+		t.Fatalf("Resolve(runtime state) error = %v", err)
+	}
+	compiledConfig, err := runtimeconfig.CompileServerConfig(runtimeInput)
+	if err != nil {
+		t.Fatalf("CompileServerConfig() error = %v", err)
+	}
+	runtimeConfigPath := filepath.Join(directory, "sing-box.json")
+	if err := os.WriteFile(runtimeConfigPath, compiledConfig, 0o600); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+	return runtimePaths{
+		config:        configPath,
+		passwordHash:  passwordPath,
+		runtimeState:  runtimeStatePath,
+		runtimeConfig: runtimeConfigPath,
+	}
 }
 
 func runtimeLogin(t *testing.T, handler http.Handler) *http.Cookie {
@@ -603,6 +658,33 @@ func (checker *runtimePortChecker) Available(network string, port int) (bool, er
 }
 
 var _ projectnetwork.PortAvailabilityChecker = (*runtimePortChecker)(nil)
+
+type stubRuntime struct {
+	starts       int
+	reloads      int
+	healthChecks int
+	stops        int
+}
+
+func (runtime *stubRuntime) Start() error {
+	runtime.starts++
+	return nil
+}
+
+func (runtime *stubRuntime) Reload(context.Context) error {
+	runtime.reloads++
+	return nil
+}
+
+func (runtime *stubRuntime) Healthy(context.Context) error {
+	runtime.healthChecks++
+	return nil
+}
+
+func (runtime *stubRuntime) Stop(context.Context) error {
+	runtime.stops++
+	return nil
+}
 
 type stubListener struct{}
 
