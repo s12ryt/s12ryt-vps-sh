@@ -85,6 +85,23 @@ func TestHealthEndpointIsUnauthenticatedMinimalAndPathScoped(t *testing.T) {
 	}
 }
 
+func TestLoginPageUsesDarkNOCTheme(t *testing.T) {
+	server := newTestServer(t)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://panel.test/abcdefghijkl", nil)
+	request.RemoteAddr = "198.51.100.8:41234"
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200", response.Code)
+	}
+	body := response.Body.String()
+	for _, expected := range []string{`data-ui-theme="noc"`, `color-scheme:dark`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("login page missing dark theme marker %q", expected)
+		}
+	}
+}
+
 func TestSuccessfulLoginSetsSessionCookieWithRequiredAttributes(t *testing.T) {
 	server := newTestServer(t)
 	response := login(t, server, "panel-password", "198.51.100.8")

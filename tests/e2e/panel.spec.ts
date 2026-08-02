@@ -12,6 +12,7 @@ async function login(page: Page): Promise<void> {
 test('登入錯誤與成功路徑都可觀察', async ({ page }) => {
   await page.goto(panelPath);
   await expect(page.getByRole('heading', { name: '登入 IPv6 管理面板' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('dark');
   await page.getByLabel('管理密碼').fill('wrong-password');
   await page.getByRole('button', { name: '登入' }).click();
   await expect(page.locator('body')).toContainText('密碼錯誤');
@@ -100,6 +101,7 @@ test('分享需重新驗證且關閉時清除秘密', async ({ page, context }) 
     origin: 'http://127.0.0.1:18080',
   });
   await login(page);
+  await page.getByRole('tab', { name: '分享' }).click();
   await page.getByRole('button', { name: '驗證並查看分享' }).click();
   const modal = page.locator('[data-modal="share-reveal"]');
   await modal.getByLabel('管理密碼').fill('panel-password');
