@@ -40,8 +40,8 @@ setup() {
 }
 
 @test "資源驗收會從所有 panel thread 尋找受管理的 sing-box" {
-  local proc_root="$SANDBOX/proc"
-  local executable="$SANDBOX/sing-box"
+  local proc_root="$TEST_ROOT/proc"
+  local executable="$TEST_ROOT/sing-box"
 
   mkdir -p \
     "$proc_root/123/task/123" \
