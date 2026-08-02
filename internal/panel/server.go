@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/s12ryt/s12ryt-vps-sh/internal/auth"
 	"github.com/s12ryt/s12ryt-vps-sh/internal/domain"
@@ -19,6 +20,8 @@ import (
 const SessionCookieName = "s12ryt_panel_session"
 
 const maxConfigBodySize = 1 << 20
+
+const credentialElevationLifetime = 5 * time.Minute
 
 type ConfigStore interface {
 	Save(domain.Config) error
@@ -41,6 +44,7 @@ type Options struct {
 	Config       domain.Config
 	Store        ConfigStore
 	NodeManager  NodeManager
+	Clock        func() time.Time
 }
 
 type Server struct {
@@ -53,12 +57,19 @@ type Server struct {
 	config       domain.Config
 	store        ConfigStore
 	nodeManager  NodeManager
+	clock        func() time.Time
+	elevationMu  sync.Mutex
+	elevations   map[string]time.Time
 }
 
 func NewServer(options Options) *Server {
 	config := options.Config
 	if options.NodeManager != nil {
 		config = options.NodeManager.Snapshot()
+	}
+	clock := options.Clock
+	if clock == nil {
+		clock = time.Now
 	}
 	return &Server{
 		basePath:     strings.TrimRight(options.BasePath, "/"),
@@ -69,6 +80,8 @@ func NewServer(options Options) *Server {
 		config:       config,
 		store:        options.Store,
 		nodeManager:  options.NodeManager,
+		clock:        clock,
+		elevations:   make(map[string]time.Time),
 	}
 }
 
@@ -207,6 +220,7 @@ func (server *Server) handleLogout(response http.ResponseWriter, request *http.R
 		return
 	}
 	server.sessions.Revoke(session.Token)
+	server.revokeCredentialElevation(session.Token)
 	http.SetCookie(response, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -340,7 +354,22 @@ func (server *Server) createNode(response http.ResponseWriter, request *http.Req
 }
 
 func (server *Server) handleNamedNode(response http.ResponseWriter, request *http.Request) {
-	id := strings.TrimPrefix(request.URL.Path, server.basePath+"/api/nodes/")
+	remainder := strings.TrimPrefix(request.URL.Path, server.basePath+"/api/nodes/")
+	if strings.HasSuffix(remainder, "/credential") {
+		id := strings.TrimSuffix(remainder, "/credential")
+		if id == "" || strings.Contains(id, "/") {
+			http.Error(response, "節點 ID 無效。", http.StatusBadRequest)
+			return
+		}
+		if request.Method != http.MethodPost {
+			response.Header().Set("Allow", "POST")
+			http.Error(response, "不支援的憑證操作。", http.StatusMethodNotAllowed)
+			return
+		}
+		server.revealNodeCredential(response, request, id)
+		return
+	}
+	id := remainder
 	if id == "" || strings.Contains(id, "/") {
 		http.Error(response, "節點 ID 無效。", http.StatusBadRequest)
 		return
@@ -354,6 +383,118 @@ func (server *Server) handleNamedNode(response http.ResponseWriter, request *htt
 		response.Header().Set("Allow", "PATCH, DELETE")
 		http.Error(response, "不支援的節點操作。", http.StatusMethodNotAllowed)
 	}
+}
+
+type credentialRevealRequest struct {
+	Password string `json:"password"`
+}
+
+type credentialRevealResponse struct {
+	Credential       domain.NodeCredential `json:"credential"`
+	ExpiresInSeconds int64                 `json:"expires_in_seconds"`
+}
+
+func (server *Server) revealNodeCredential(response http.ResponseWriter, request *http.Request, id string) {
+	session, cookie, authorized := server.authorizeCredentialReveal(response, request)
+	if !authorized {
+		return
+	}
+	var input credentialRevealRequest
+	if !decodeStrictJSON(response, request, &input) {
+		return
+	}
+
+	expiresAt, elevated := server.credentialElevation(cookie.Value)
+	if !elevated {
+		if input.Password == "" {
+			http.Error(response, "請重新輸入管理密碼。", http.StatusUnauthorized)
+			return
+		}
+		verified, err := server.hasher.Verify(server.passwordHash, input.Password)
+		if err != nil {
+			http.Error(response, "面板認證設定無效。", http.StatusInternalServerError)
+			return
+		}
+		if !verified {
+			http.Error(response, "管理密碼錯誤。", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	credential, found := server.nodeCredential(id)
+	if !found {
+		http.Error(response, "找不到節點。", http.StatusNotFound)
+		return
+	}
+	if !elevated {
+		expiresAt = server.clock().Add(credentialElevationLifetime)
+		server.setCredentialElevation(session.Token, expiresAt)
+	}
+	remaining := expiresAt.Sub(server.clock()) / time.Second
+	if remaining < 0 {
+		remaining = 0
+	}
+	writeJSON(response, http.StatusOK, credentialRevealResponse{
+		Credential:       credential,
+		ExpiresInSeconds: int64(remaining),
+	})
+}
+
+func (server *Server) authorizeCredentialReveal(response http.ResponseWriter, request *http.Request) (auth.Session, *http.Cookie, bool) {
+	cookie, err := request.Cookie(SessionCookieName)
+	if err != nil {
+		http.Error(response, "需要登入。", http.StatusUnauthorized)
+		return auth.Session{}, nil, false
+	}
+	clientIP := requestClientIP(request)
+	session, valid := server.sessions.Lookup(cookie.Value, clientIP)
+	if !valid {
+		http.Error(response, "登入工作階段無效。", http.StatusUnauthorized)
+		return auth.Session{}, nil, false
+	}
+	if !server.sessions.Validate(cookie.Value, request.Header.Get("X-CSRF-Token"), clientIP) {
+		http.Error(response, "CSRF 驗證失敗。", http.StatusForbidden)
+		return auth.Session{}, nil, false
+	}
+	return session, cookie, true
+}
+
+func (server *Server) nodeCredential(id string) (domain.NodeCredential, bool) {
+	if server.nodeManager == nil {
+		return domain.NodeCredential{}, false
+	}
+	for _, node := range server.nodeManager.Snapshot().Nodes {
+		if node.ID == id {
+			return node.Credential, true
+		}
+	}
+	return domain.NodeCredential{}, false
+}
+
+func (server *Server) credentialElevation(token string) (time.Time, bool) {
+	server.elevationMu.Lock()
+	defer server.elevationMu.Unlock()
+	expiresAt, exists := server.elevations[token]
+	if !exists {
+		return time.Time{}, false
+	}
+	if !server.clock().Before(expiresAt) {
+		delete(server.elevations, token)
+		return time.Time{}, false
+	}
+	return expiresAt, true
+}
+
+func (server *Server) setCredentialElevation(token string, expiresAt time.Time) {
+	server.elevationMu.Lock()
+	server.elevations[token] = expiresAt
+	server.elevationMu.Unlock()
+}
+
+func (server *Server) revokeCredentialElevation(token string) {
+	server.elevationMu.Lock()
+	delete(server.elevations, token)
+	server.elevationMu.Unlock()
 }
 
 func (server *Server) updateNode(response http.ResponseWriter, request *http.Request, id string) {
