@@ -245,6 +245,26 @@ EOF
     grep -Fxq 'panel init' "$MOCK_LOG"
 }
 
+@test "下載後尚未帶執行權限的面板資產仍可安全部署" {
+    create_command_mock systemctl
+    local bundle="${TEST_ROOT}/verified-bundle"
+    create_verified_ipv6_bundle "$bundle"
+    chmod 0644 "${bundle}/s12ryt-ipv6-linux-amd64"
+    local unit_path="${TEST_ROOT}/etc/systemd/system/s12ryt-ipv6.service"
+
+    run /usr/bin/env \
+        PATH="$PATH" \
+        MOCK_LOG="$MOCK_LOG" \
+        S12RYT_PROJECT_ROOT="$S12RYT_PROJECT_ROOT" \
+        S12RYT_SYSTEMD_UNIT_PATH="$unit_path" \
+        /bin/bash -c 'source "$1"; install_verified_ipv6_bundle "$2" amd64 systemd' _ \
+        "${PROJECT_ROOT}/install-ipv6.sh" "$bundle"
+
+    [ "$status" -eq 0 ]
+    [ -x "${S12RYT_PROJECT_ROOT}/bin/s12ryt-ipv6" ]
+    grep -Fxq 'panel init' "$MOCK_LOG"
+}
+
 @test "OpenRC 安裝會建立服務與受限輪替日誌設定" {
     create_command_mock rc-update
     create_command_mock rc-service
