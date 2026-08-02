@@ -11,8 +11,10 @@ import (
 
 func TestBuildCreatesContractResourceWorkload(t *testing.T) {
 	entropy := make([]byte, ResourceNodeCount*16)
-	for index := range entropy {
-		entropy[index] = byte(index)
+	for nodeIndex := 0; nodeIndex < ResourceNodeCount; nodeIndex++ {
+		for byteIndex := 0; byteIndex < 16; byteIndex++ {
+			entropy[nodeIndex*16+byteIndex] = byte(nodeIndex + byteIndex)
+		}
 	}
 
 	profile, err := Build(bytes.NewReader(entropy))
