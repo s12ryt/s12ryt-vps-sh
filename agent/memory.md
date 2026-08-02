@@ -92,3 +92,21 @@
 - 防火牆規劃於 RED/GREEN runs `30726551004`/`30726716194` 完成 active backend 唯一判定、ufw/firewalld/nftables 專案標記與最小 TCP/UDP 規則，保持純計畫、不直接修改系統。
 - 本機分享輸出於 RED run `30727208080` 缺少分享模型，GREEN run `30727297029` 完成七協議 URI、client JSON、QR payload 及只含 enabled/healthy 本機節點的 standard Base64 訂閱，遠端秘密不參與輸出。
 - 健康排程於 RED run `30727501631` 精確缺少 monitor/probe/ticker API；GREEN run `30727608410` 完成每輪全候選檢查、每請求 timeout、立即與週期執行、取消停止及 selector 健康回饋，全套 Go/Bash/文件與 10 發行版 smoke 通過。
+- IPv6 policy route 於 RED/GREEN runs `30727749222`/`30727820377` 完成每個專案 IPv6 的專用 table/priority、source rule 與只清專案 table 的移除計畫，不修改 main/default route。
+- 系統命令交易於 RED/GREEN runs `30728076838`/`30728159954` 完成白名單命令、預先驗證、失敗反序 rollback 與原始/回滾錯誤保留。
+- 面板互動設定 UI 於 RED/GREEN runs `30728254862`/`30728383951` 完成三種模式、四種拓撲、七協議入口、validate/diff/confirm/apply 與五個 static-backdrop modal 的基本工具介面。
+- TLS 憑證基礎於 RED/GREEN runs `30728476482`/`30728673083` 完成 Ed25519 自簽、SAN、指紋、配對/期限/hostname與外部檔案權限驗證；TLS 部署計畫於 `30728815910`/`30729019532` 完成自簽、ACME HTTP-01及外部複製/引用的純計畫邊界。
+- 節點認證於 RED/GREEN runs `30729200731`/`30729357525` 完成七協議差異化 UUID/密碼/method；安全自動選埠於 `30729499970`/`30729597904` 完成 20000--49999 無偏差抽樣與 TCP/UDP 同時可用檢查。
+- 節點交易管理於 RED/GREEN runs `30729765548`/`30729847875` 完成 create/update/delete 與 Save 失敗不換狀態；ReplaceConfig 保護於 `30729917884`/`30730054110` 阻止 generic config API 改寫節點 credential。
+- Panel Node API 與 credential 防洩漏於 RED runs `30730174085`、`30730360544` 形成證據，GREEN `30730469249` 完成 masked list/config、CSRF/confirm CRUD 與 manager 委派。
+- 實際 TCP/UDP socket checker於 RED/GREEN runs `30730620790`/`30730717697` 完成 bind/close、EADDRINUSE語意與錯誤保留；runtime NodeManager wiring於 `30730806558`/`30730908841` 讓正式panel節點API使用安全allocator。
+- 節點敏感憑證五分鐘揭露於 RED/GREEN runs `30731078364`/`30731180354` 完成管理密碼重驗、session/client-IP/CSRF scope、到期與logout撤銷；部署協調器於 `30731284812`/`30731407857` 完成元件prepare/apply、原子Save、reload/health及完整restore流程。
+- 節點管理 Web UI 於 RED/GREEN runs `30731508897`/`30731760201` 完成無CDN responsive table/forms、create/edit/delete與敏感值重驗modal，所有動態文字使用DOM textContent。
+- Go binary初始化於 RED/GREEN runs `30731918410`/`30732035019` 完成root-only config、PBKDF2 hash、隨機path/password及no-clobber；後續 `30733600461`/`30733705335` 補root-only明文管理密碼供CLI顯示，`30733809531`/`30733916246` 完成雙棧status輸出。
+- 主選單8與多IPv6子選單於 RED/GREEN runs `30732194649`/`30732343845` 完成；verified Release staging於 `30732611880`/`30732705476` 完成panel SHA256SUMS與sing-box v1.13.15固定asset digest驗證。
+- systemd/OpenRC首次安裝於 RED/GREEN runs `30732826032`/`30733003749` 完成，並以 `30733063062`/`30733121179` 回歸修正Release下載asset無執行位元的正常情況。
+- installer與主腳本helper整合於 RED/GREEN runs `30733254638`/`30733443108` 完成；設定/status入口最終GREEN `30734267212`，健康endpoint/health-url於 `30734381009`/`30734546908` 完成。
+- verified更新與健康失敗回滾於 RED/GREEN runs `30734652131`/`30734762228` 完成；卸載保留資料/完整清除於 `30734828565`/`30735051812` 完成。目前尚未建立的資料平面 firewall/route/IPv6 manifest 不在卸載完成宣稱內。
+- sing-box runtime compiler於 RED/GREEN runs `30735184303`/`30735266550` 完成 enabled domain node、resolved listener/TLS/transport與direct IPv6 outbound編譯。
+- sing-box配置檔交易首輪 `30735352446` 僅為gofmt失敗；有效RED `30735457626` 精確缺配置交易API，GREEN `30735551128` 完成prepare時編譯/驗證及0600原子Apply/Rollback。
+- `sing-box check -c` 驗證器首輪 `30735645723` 僅為gofmt失敗；有效RED `30735705782` 精確缺驗證器API，GREEN `30735785460` 完成受保護暫存檔、固定binary參數、錯誤保留與成功/失敗清理。
