@@ -107,6 +107,28 @@ func TestConfigValidateAcceptsSupportedProtocolsModesAndTopologies(t *testing.T)
 	}
 }
 
+func TestConfigValidateAcceptsOptionalGlobalPanelIPv6(t *testing.T) {
+	config := DefaultConfig()
+	if config.Panel.ListenIPv6 != "" {
+		t.Fatalf("default Panel.ListenIPv6 = %q, want empty dual-stack wildcard", config.Panel.ListenIPv6)
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("default Validate() error = %v", err)
+	}
+
+	config.Panel.ListenIPv6 = "2001:db8:100::20"
+	if err := config.Validate(); err != nil {
+		t.Fatalf("global panel IPv6 Validate() error = %v", err)
+	}
+
+	for _, value := range []string{"192.0.2.10", "fe80::1", "::", "not-an-ip"} {
+		config.Panel.ListenIPv6 = value
+		if err := config.Validate(); err == nil {
+			t.Fatalf("Panel.ListenIPv6 %q accepted, want rejection", value)
+		}
+	}
+}
+
 func validTestNodeCredential(protocol Protocol) NodeCredential {
 	uuid := "00112233-4455-4677-8899-aabbccddeeff"
 	password := "abcdefghijklmnopqrstuvwx"
