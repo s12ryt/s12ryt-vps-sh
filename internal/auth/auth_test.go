@@ -82,7 +82,8 @@ func TestSessionManagerRevokeAllInvalidatesExistingSessions(t *testing.T) {
 
 func TestSessionManagerRevokeInvalidatesOnlyNamedSession(t *testing.T) {
 	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
-	manager := NewSessionManager(bytes.NewReader(bytes.Repeat([]byte{0x26}, 512)), func() time.Time { return now })
+	entropy := append(bytes.Repeat([]byte{0x26}, 64), bytes.Repeat([]byte{0x27}, 64)...)
+	manager := NewSessionManager(bytes.NewReader(entropy), func() time.Time { return now })
 	first, err := manager.Create("198.51.100.8")
 	if err != nil {
 		t.Fatalf("Create(first) error = %v", err)
