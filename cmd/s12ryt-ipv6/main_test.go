@@ -91,6 +91,21 @@ func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
 	if err != nil || !verified {
 		t.Fatalf("Verify(initial password) = %t, %v", verified, err)
 	}
+	plainPasswordPath := filepath.Join(projectRoot, "secrets", "management.password")
+	plainPasswordInfo, err := os.Stat(plainPasswordPath)
+	if err != nil {
+		t.Fatalf("stat plaintext management password: %v", err)
+	}
+	if plainPasswordInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("plaintext password mode = %04o, want 0600", plainPasswordInfo.Mode().Perm())
+	}
+	plainPassword, err := os.ReadFile(plainPasswordPath)
+	if err != nil {
+		t.Fatalf("read plaintext management password: %v", err)
+	}
+	if string(plainPassword) != result.Password+"\n" {
+		t.Fatalf("stored plaintext password = %q, want generated password", plainPassword)
+	}
 	for _, directory := range []string{filepath.Join(projectRoot, "config"), filepath.Join(projectRoot, "secrets")} {
 		info, err := os.Stat(directory)
 		if err != nil {
@@ -98,6 +113,37 @@ func TestInitializeProjectCreatesProtectedBootstrapState(t *testing.T) {
 		}
 		if info.Mode().Perm() != 0o700 {
 			t.Fatalf("directory %s mode = %04o, want 0700", directory, info.Mode().Perm())
+		}
+	}
+}
+
+func TestInitializeProjectRefusesToOverwritePlaintextPassword(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "s12ryt-ipv6")
+	plainPasswordPath := filepath.Join(projectRoot, "secrets", "management.password")
+	if err := os.MkdirAll(filepath.Dir(plainPasswordPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(plainPasswordPath, []byte("sentinel\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := initializeProject(initializationOptions{
+		ProjectRoot: projectRoot,
+		Entropy:     bytes.NewReader(bytes.Repeat([]byte{0x38}, 512)),
+	})
+	if err == nil {
+		t.Fatal("initializeProject() overwrote an existing plaintext password")
+	}
+	contents, readErr := os.ReadFile(plainPasswordPath)
+	if readErr != nil || string(contents) != "sentinel\n" {
+		t.Fatalf("existing plaintext password = %q, %v", contents, readErr)
+	}
+	for _, path := range []string{
+		filepath.Join(projectRoot, "config", "config.json"),
+		filepath.Join(projectRoot, "secrets", "password.hash"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("initialization created %s after refusal: %v", path, statErr)
 		}
 	}
 }
