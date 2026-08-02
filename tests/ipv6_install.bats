@@ -320,3 +320,29 @@ EOF
     [ ! -e "$unit_path" ]
     ! grep -Fq 'enable --now' "$MOCK_LOG"
 }
+
+@test "install 命令依序完成前置檢查下載與服務部署" {
+    run /usr/bin/env \
+        TRACE_LOG="$MOCK_LOG" \
+        TMPDIR="$TEST_ROOT" \
+        /bin/bash -c '
+            source "$1"
+            check_ipv6_project_preflight() { printf "preflight\n" >> "$TRACE_LOG"; }
+            map_ipv6_project_arch() { printf "amd64\n"; }
+            detect_ipv6_project_init() { printf "systemd\n"; }
+            fetch_ipv6_release_bundle() {
+                printf "fetch %s %s\n" "$1" "$2" >> "$TRACE_LOG"
+                mkdir -p "$1"
+            }
+            install_verified_ipv6_bundle() {
+                printf "install %s %s %s\n" "$1" "$2" "$3" >> "$TRACE_LOG"
+            }
+            main install
+        ' _ "${PROJECT_ROOT}/install-ipv6.sh"
+
+    [ "$status" -eq 0 ]
+    [ "$(sed -n '1p' "$MOCK_LOG")" = "preflight" ]
+    grep -Eq '^fetch .*/s12ryt-ipv6-bundle\.[^ ]+ amd64$' "$MOCK_LOG"
+    grep -Eq '^install .*/s12ryt-ipv6-bundle\.[^ ]+ amd64 systemd$' "$MOCK_LOG"
+    [ "$(find "$TEST_ROOT" -maxdepth 1 -name 's12ryt-ipv6-bundle.*' | wc -l)" -eq 0 ]
+}
