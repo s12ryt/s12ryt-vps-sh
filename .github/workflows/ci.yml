@@ -10,99 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  go-test:
-    name: Go tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.26.5
-          cache: false
-
-      - name: Check Go formatting
-        shell: bash
-        run: |
-          mapfile -t unformatted < <(gofmt -l .)
-          if ((${#unformatted[@]} > 0)); then
-            gofmt -d "${unformatted[@]}"
-            exit 1
-          fi
-
-      - name: Run Go tests
-        run: go test ./...
-
-      - name: Run Go vet
-        run: go vet ./...
-
-  release-build:
-    name: Release asset build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.26.5
-          cache: false
-
-      - name: Build verified release assets
-        shell: bash
-        run: bash scripts/build-release.sh build .tmp/release
-
-      - name: Verify release checksums
-        shell: bash
-        working-directory: .tmp/release
-        run: sha256sum -c SHA256SUMS
-
-      - name: Upload release assets
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ipv6-release-assets
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            .tmp/release/s12ryt-ipv6-linux-amd64
-            .tmp/release/s12ryt-ipv6-linux-arm64
-            .tmp/release/SHA256SUMS
-
-  resource-test:
-    name: Resource usage
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.26.5
-          cache: false
-
-      - name: Build resource workload
-        shell: bash
-        run: |
-          mkdir -p .tmp/resource
-          go build -trimpath -ldflags '-s -w' \
-            -o .tmp/resource/s12ryt-ipv6 \
-            ./cmd/s12ryt-ipv6
-          go run ./tests/resource/fixture .tmp/resource-profile
-
-      - name: Verify idle resource usage
-        shell: bash
-        run: |
-          sudo --non-interactive /bin/bash scripts/verify-resource-usage.sh verify \
-            "$GITHUB_WORKSPACE/.tmp/resource/s12ryt-ipv6" \
-            "$GITHUB_WORKSPACE/.tmp/resource-profile"
-
   test:
     name: Bash tests
     runs-on: ubuntu-latest
@@ -161,52 +68,19 @@ jobs:
           grep -Fq '私有 `uv` 0.12.1' README.md
           grep -Fq 'uv installer 本身沒有獨立 checksum' README.md
           grep -Fq 's12ryt-多ipv6出站' README.md
+          grep -Fq 's12ryt/s12ryt-ipv6' README.md
+          grep -Fq 'Debian 12/13' README.md
+          grep -Fq 'Ubuntu 24.04' README.md
+          grep -Fq '34466' README.md
+          grep -Fq '`VERSION`' README.md
+          grep -Fq '/etc/s12ryt-ipv6' README.md
           grep -Fq '公開 HTTP' README.md
-          grep -Fq 'sing-box v1.13.15' README.md
-          grep -Fq 's12ryt-ipv6-linux-amd64' README.md
-          grep -Fq 's12ryt-ipv6-linux-arm64' README.md
-          grep -Fq 'SHA256SUMS' README.md
-          grep -Fq 'Playwright' README.md
-          grep -Fq 'arm64 只完成交叉編譯' README.md
-          grep -Fq '61872 KiB / 102400 KiB' README.md
-          grep -Fq '深色 NOC 控制台' README.md
-          grep -Fq '五個工作區' README.md
-          grep -Fq '#strategy' README.md
-          grep -Fq '防止重複提交' README.md
-          grep -Fq '焦點鎖定' README.md
+          ! grep -Fq '3. 設定' README.md
+          ! grep -Fq 's12ryt-ipv6-linux-amd64' README.md
           grep -Fq 'kejilion.sh' README.md
           grep -Fq 'ssh_tool.eooce.com' README.md
           grep -Fq 'GNU GENERAL PUBLIC LICENSE' LICENSE
           test "$(git rev-parse HEAD:LICENSE)" = 'f6cdd22a6c1fbc887e08a215cb4beb3c47048041'
-
-  browser-test:
-    name: Playwright browser tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: 1.26.5
-          cache: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
-        with:
-          node-version: 24.18.0
-          cache: npm
-
-      - name: Install Playwright package
-        run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run Playwright tests
-        run: npm run test:e2e
 
   distribution-smoke:
     name: ${{ matrix.name }} smoke
