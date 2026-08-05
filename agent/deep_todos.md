@@ -74,11 +74,19 @@
 
 - [x] 稽核 v1.1.1 UI 實作與測試覆蓋，定位動態 mutation 按鈕、策略多請求 busy 生命週期及 modal 背景隔離缺口。
 - [x] 經使用者授權依 `agent/question.md` 既有契約自主疊代、延續 GitHub-only 驗收並完整發布 `v1.1.2`；已凍結增量契約。
-- [ ] TDD：按鈕級 mutation loading/disabled/`aria-busy`、防重複與取消不誤報。
-- [ ] TDD：modal 背景 `inert`、同時單一開啟、切換與焦點返回。
-- [ ] 更新主腳本、IPv6 helper、package metadata 與 README 至 `v1.1.2`。
-- [ ] 執行完整 GitHub Actions 回歸、品質審查與發行候選驗證。
-- [ ] 建立並驗證正式 `v1.1.2` Release，保留既有 Releases。
+- [x] 此任務於 2026-08-05 被「完整外部化」決策取代；未完成的 UI、package、發行與驗收項目不再屬本倉庫責任。
+
+## 目前任務：多 IPv6 專案完整外部化
+
+- [x] 定位舊內嵌實作、主選單、helper、服務、發佈與測試依賴。
+- [x] 調研 `s12ryt/s12ryt-ipv6` 支援矩陣、CLI、Release、安裝及卸載契約。
+- [x] 完成需求澄清並在 `agent/question.md` 凍結三項選單、tag 綁定、舊版遷移及保留資料契約。
+- [x] 建立舊行為基線；重寫隔離契約測試並取得 12 項預期 RED。
+- [x] 實作平台白名單、最新正式 tag 解析、同 tag 上游腳本執行、舊版交易式遷移及三項選單；15 項目標測試 GREEN。
+- [x] 移除舊 Go/Web、Playwright、Release build、資源驗收與專屬測試，收斂 CI。
+- [x] 更新 README 與專案結構紀錄，明確標示外部來源與驗證邊界。
+- [x] 執行本機可用的完整回歸與品質審查：IPv6 17/17、Bash syntax、ShellCheck 0.11.0、CI 文件斷言均通過；全套 Bats 80/81，唯一失敗為既有 Python 測試的 WSL `/usr/local/bin` 隔離問題。
+- [ ] 在 GitHub-hosted runner 執行完整 Bats 與 10 發行版容器 smoke，並於可丟棄的支援 VPS 驗證真實 systemd、網路及上游安裝/卸載流程。
 
 ## 驗收依據
 

@@ -149,3 +149,17 @@
 - 使用者選擇開始 v1.1.2 疊代，授權依 `agent/question.md` 既有契約自行決策、延續全部 GitHub-hosted 驗收並完整發布正式 Release。
 - 稽核確認 v1.1.1 的表單提交具一致操作狀態，但策略多請求流程會在驗證後提前解除 busy，動態節點刪除與遠端啟停/刪除未納入按鈕級防重複；modal 雖有焦點鎖定與返回，背景尚未 `inert`，也未強制同時只開一個。
 - 已將 v1.1.2 的最小修復範圍、錯誤與取消語意、modal 隔離、TDD、GitHub-only 驗收及正式發布條件寫入 `agent/question.md`；尚未修改正式程式或測試。
+
+## 2026-08-05
+
+- 使用者要求將本倉庫的多 IPv6 功能完整改接獨立專案 [`s12ryt/s12ryt-ipv6`](https://github.com/s12ryt/s12ryt-ipv6)，外部專案成為面板、執行檔、安裝器及發行資產的唯一來源；原 v1.1.2 Web 操作可靠性工作因此終止。
+- 經需求澄清，主選單只保留安裝、更新、卸載；每次解析上游最新非草稿、非預發布且符合 `vX.Y.Z` 的 Release，從相同 tag 下載腳本並傳入相同 `VERSION`。首次安裝沿用上游 34466，只有呼叫者明確設定時才繼承 `MANAGEMENT_PORT`。
+- 凍結平台與遷移契約：只接受 Linux root、systemd、amd64/arm64、Debian 12/13 或 Ubuntu 24.04；不支援環境須在接觸舊部署前停止。舊 `/opt/s12ryt-ipv6` 部署先執行 `cleanup-system`，再移除舊主/network units，完整保留 `/opt`；任一步失敗即停止新版安裝並盡力恢復原服務狀態。
+- 上游卸載直接執行相同 Release tag 的 `deploy/uninstall.sh`，遵循上游保留 `/etc/s12ryt-ipv6` 的契約；本工具不提供完整刪除資料選項。上述唯一現行契約已寫入 `agent/question.md`，早期內嵌面板契約僅保留為歷史紀錄。
+- 建立本機隔離基線：以工作區外的官方 Bats 1.14.0 執行舊 IPv6 測試，26/26 通過。重寫外部化契約後，15 項中 12 項因缺少三項選單、平台白名單、tag 綁定、交易式遷移及上游卸載委派而按預期失敗，形成有效 RED。
+- 完成 `install-ipv6.sh` 外部轉接器與 `s12ryt.sh` 三項選單，實作 preflight、Release metadata 驗證、同 tag 腳本語法驗證、install/update/uninstall 委派及舊部署遷移；首輪目標測試 15/15 GREEN。
+- 品質審查發現舊 unit 備份或刪除失敗時仍可能繼續安裝新版。新增兩項故障注入測試並確認皆先 RED；正式碼加入 unit 還原及明確中止後，完整 IPv6 契約 17/17 GREEN。
+- 依完整外部化決策移除 Go module、`cmd/s12ryt-ipv6`、`internal` 面板實作、Playwright、Release cross-build、資源驗收腳本及其專屬測試；CI 收斂為 Bash syntax、ShellCheck、Bats、文件驗證與既有 10 發行版容器 smoke。
+- 更新 README 與 `agent/項目表.md`，明確說明上游來源、支援矩陣、34466、tag/`VERSION` 綁定、舊資料保留、公開 HTTP 風險及卸載資料契約；主倉庫版本維持 v1.1.1，未建立 Release。
+- 最終本機驗證：IPv6 17/17 通過；Bash 語法通過；官方 ShellCheck 0.11.0 無警告；CI README/LICENSE 斷言通過。全套 Bats 81 項中 80 項通過，唯一失敗為既有 Python 測試以模擬 root 身分嘗試寫入真 `/usr/local/bin/python3.14`，在非 root WSL 先遇權限錯誤，與本次 IPv6 變更無關。
+- 本機沒有 Docker，因此未執行 10 發行版容器 smoke；亦未在真實 VPS 執行 systemd、網路或上游安裝/卸載。此次沒有 commit、push 或發布。
