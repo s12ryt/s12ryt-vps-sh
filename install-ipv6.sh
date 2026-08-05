@@ -4,10 +4,8 @@
 
 set -u
 
-readonly IPV6_PROJECT_VERSION="1.1.1"
-readonly SINGBOX_VERSION="1.13.15"
-readonly SINGBOX_AMD64_SHA256="a3a3ff223b23c3f4731d0a17cb0ef94c97ce257c70721a5b07dc7ca079203c9f"
-readonly SINGBOX_ARM64_SHA256="f0810bbb5722ae36635687c421019defcc8b328d31a0b3c287901f331747ca93"
+readonly S12RYT_IPV6_RELEASE_API_DEFAULT="https://api.github.com/repos/s12ryt/s12ryt-ipv6/releases/latest"
+readonly S12RYT_IPV6_RAW_BASE_DEFAULT="https://raw.githubusercontent.com/s12ryt/s12ryt-ipv6"
 
 map_ipv6_project_arch() {
     case "$1" in
@@ -29,24 +27,43 @@ detect_ipv6_project_init() {
         printf '%s\n' "$S12RYT_INIT_SYSTEM"
         return 0
     fi
-
     if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
         printf 'systemd\n'
         return 0
     fi
-    if command -v rc-service >/dev/null 2>&1; then
-        printf 'openrc\n'
-        return 0
+    printf 'unknown\n'
+}
+
+check_ipv6_project_distribution() {
+    local os_release_file distribution version
+    local ID='' VERSION_ID=''
+
+    os_release_file="${S12RYT_OS_RELEASE_FILE:-/etc/os-release}"
+    if [[ ! -r "$os_release_file" ]]; then
+        printf '錯誤：無法讀取作業系統版本：%s。\n' "$os_release_file" >&2
+        return 1
     fi
 
-    printf 'unknown\n'
+    # shellcheck disable=SC1090
+    . "$os_release_file"
+    distribution="${ID,,}"
+    version="${VERSION_ID:-}"
+    case "${distribution}:${version}" in
+        debian:12 | debian:13 | ubuntu:24.04)
+            return 0
+            ;;
+        *)
+            printf '錯誤：多 IPv6 出站僅支援 Debian 12/13 或 Ubuntu 24.04。\n' >&2
+            return 1
+            ;;
+    esac
 }
 
 check_ipv6_project_preflight() {
     local kernel_name effective_uid init_system machine_arch
 
     kernel_name="${S12RYT_KERNEL_NAME:-$(uname -s)}"
-    if [[ "$kernel_name" != "Linux" ]]; then
+    if [[ "$kernel_name" != 'Linux' ]]; then
         printf '錯誤：多 IPv6 出站僅支援 Linux。\n' >&2
         return 1
     fi
@@ -58,908 +75,281 @@ check_ipv6_project_preflight() {
     fi
 
     init_system="$(detect_ipv6_project_init)"
-    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
-        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
+    if [[ "$init_system" != 'systemd' ]]; then
+        printf '錯誤：多 IPv6 出站僅支援 systemd。\n' >&2
         return 1
     fi
 
     machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
-    if ! map_ipv6_project_arch "$machine_arch" >/dev/null; then
-        return 1
-    fi
-
-    return 0
+    map_ipv6_project_arch "$machine_arch" >/dev/null || return 1
+    check_ipv6_project_distribution
 }
 
-panel_asset_name() {
-    case "$1" in
-        amd64 | arm64)
-            printf 's12ryt-ipv6-linux-%s\n' "$1"
-            ;;
-        *)
-            printf '錯誤：不支援的面板資產架構：%s。\n' "$1" >&2
-            return 1
-            ;;
-    esac
-}
+extract_ipv6_release_tag() {
+    local metadata_file="$1"
+    local release_tag=''
 
-singbox_asset_name() {
-    case "$1" in
-        amd64 | arm64)
-            printf 'sing-box-%s-linux-%s.tar.gz\n' "$SINGBOX_VERSION" "$1"
-            ;;
-        *)
-            printf '錯誤：不支援的 sing-box 資產架構：%s。\n' "$1" >&2
-            return 1
-            ;;
-    esac
-}
+    if command -v jq >/dev/null 2>&1; then
+        release_tag="$(jq -er '
+            if type == "object" and .draft == false and .prerelease == false and
+                (.tag_name | type == "string")
+            then .tag_name
+            else empty
+            end
+        ' "$metadata_file" 2>/dev/null)" || release_tag=''
+    elif command -v python3 >/dev/null 2>&1; then
+        release_tag="$(python3 - "$metadata_file" <<'PY' 2>/dev/null
+import json
+import sys
 
-singbox_asset_digest() {
-    case "$1" in
-        amd64)
-            printf '%s\n' "$SINGBOX_AMD64_SHA256"
-            ;;
-        arm64)
-            printf '%s\n' "$SINGBOX_ARM64_SHA256"
-            ;;
-        *)
-            printf '錯誤：不支援的 sing-box digest 架構：%s。\n' "$1" >&2
-            return 1
-            ;;
-    esac
-}
-
-sha256_of_file() {
-    local output
-
-    output="$(sha256sum "$1")" || return 1
-    printf '%s\n' "${output%% *}"
-}
-
-checksum_for_asset() {
-    local checksum_file="$1"
-    local asset_name="$2"
-
-    awk -v asset="$asset_name" '
-        $2 == asset { digest = $1; matches++ }
-        END {
-            if (matches != 1) exit 1
-            print digest
-        }
-    ' "$checksum_file"
-}
-
-valid_sha256() {
-    [[ "$1" =~ ^[0-9a-fA-F]{64}$ ]]
-}
-
-cleanup_ipv6_download() {
-    local temporary_directory="$1"
-
-    if [[ -n "$temporary_directory" && -d "$temporary_directory" ]]; then
-        rm -rf -- "$temporary_directory"
-    fi
-}
-
-fetch_ipv6_release_bundle() {
-    local destination="$1"
-    local architecture="$2"
-    local parent temporary_directory panel_asset singbox_asset
-    local panel_url checksums_url singbox_url panel_expected panel_actual
-    local singbox_expected singbox_actual archive_entry
-
-    panel_asset="$(panel_asset_name "$architecture")" || return 1
-    singbox_asset="$(singbox_asset_name "$architecture")" || return 1
-
-    for command_name in curl sha256sum awk tar mktemp mkdir mv rm; do
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-            printf '錯誤：缺少必要命令：%s。\n' "$command_name" >&2
-            return 1
-        fi
-    done
-
-    parent="${destination%/*}"
-    if [[ "$parent" == "$destination" ]]; then
-        parent='.'
-    fi
-    if ! mkdir -p -- "$parent"; then
-        printf '錯誤：無法建立 IPv6 專案下載目錄。\n' >&2
-        return 1
-    fi
-    temporary_directory="$(mktemp -d "${parent}/.s12ryt-ipv6-download.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案下載暫存目錄。\n' >&2
-        return 1
-    }
-
-    panel_url="https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v${IPV6_PROJECT_VERSION}/${panel_asset}"
-    checksums_url="https://github.com/s12ryt/s12ryt-vps-sh/releases/download/v${IPV6_PROJECT_VERSION}/SHA256SUMS"
-    singbox_url="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/${singbox_asset}"
-
-    if ! curl -fsSL --connect-timeout 5 --max-time 60 "$panel_url" -o "${temporary_directory}/${panel_asset}" ||
-        ! curl -fsSL --connect-timeout 5 --max-time 60 "$checksums_url" -o "${temporary_directory}/SHA256SUMS" ||
-        ! curl -fsSL --connect-timeout 5 --max-time 60 "$singbox_url" -o "${temporary_directory}/${singbox_asset}"; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：無法下載 IPv6 專案資產。\n' >&2
-        return 1
-    fi
-
-    panel_expected="$(checksum_for_asset "${temporary_directory}/SHA256SUMS" "$panel_asset")" || panel_expected=''
-    panel_actual="$(sha256_of_file "${temporary_directory}/${panel_asset}")" || panel_actual=''
-    if ! valid_sha256 "$panel_expected" || [[ "${panel_expected,,}" != "${panel_actual,,}" ]]; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：面板資產 SHA256 驗證失敗。\n' >&2
-        return 1
-    fi
-
-    singbox_expected="${S12RYT_SINGBOX_SHA256:-$(singbox_asset_digest "$architecture")}" || singbox_expected=''
-    singbox_actual="$(sha256_of_file "${temporary_directory}/${singbox_asset}")" || singbox_actual=''
-    if ! valid_sha256 "$singbox_expected" || [[ "${singbox_expected,,}" != "${singbox_actual,,}" ]]; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：sing-box 資產 SHA256 驗證失敗。\n' >&2
-        return 1
-    fi
-
-    archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
-    if ! tar -tzf "${temporary_directory}/${singbox_asset}" 2>/dev/null | grep -Fxq "$archive_entry"; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：sing-box 壓縮檔驗證失敗。\n' >&2
-        return 1
-    fi
-
-    if [[ -e "$destination" ]]; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：IPv6 專案資產目標已存在。\n' >&2
-        return 1
-    fi
-    if ! mv -- "$temporary_directory" "$destination"; then
-        cleanup_ipv6_download "$temporary_directory"
-        printf '錯誤：無法保存 IPv6 專案資產。\n' >&2
-        return 1
-    fi
-
-    printf 'IPv6 專案資產下載與驗證完成。\n'
-}
-
-write_ipv6_project_file() {
-    local path="$1"
-    local mode="$2"
-    local content="$3"
-    local parent temporary_file
-
-    parent="${path%/*}"
-    if [[ "$parent" == "$path" ]]; then
-        parent='.'
-    fi
-    mkdir -p -- "$parent" || return 1
-    temporary_file="$(mktemp "${parent}/.s12ryt-ipv6-file.XXXXXX")" || return 1
-    if ! printf '%s' "$content" > "$temporary_file" ||
-        ! chmod "$mode" "$temporary_file" ||
-        ! mv -f -- "$temporary_file" "$path"; then
-        rm -f -- "$temporary_file"
-        return 1
-    fi
-}
-
-systemd_unit_content() {
-    local project_root="$1"
-
-    cat <<EOF
-[Unit]
-Description=s12ryt IPv6 outbound panel
-After=network-online.target
-Wants=network-online.target
-Requires=s12ryt-ipv6-network.service
-After=s12ryt-ipv6-network.service
-
-[Service]
-Type=simple
-User=root
-ExecStart=${project_root}/bin/s12ryt-ipv6 serve
-Restart=on-failure
-RestartSec=3
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=${project_root}
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-
-[Install]
-WantedBy=multi-user.target
-EOF
-}
-
-systemd_network_unit_content() {
-    local project_root="$1"
-
-    cat <<EOF
-[Unit]
-Description=s12ryt IPv6 network integration restore
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=${project_root}/bin/s12ryt-ipv6 restore-system
-RemainAfterExit=yes
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=${project_root}
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-
-[Install]
-WantedBy=multi-user.target
-EOF
-}
-
-openrc_service_content() {
-    local project_root="$1"
-
-    cat <<EOF
-#!/sbin/openrc-run
-name="s12ryt IPv6 outbound panel"
-description="s12ryt IPv6 outbound panel"
-command="${project_root}/bin/s12ryt-ipv6"
-command_args="serve"
-command_background=true
-pidfile=/run/s12ryt-ipv6.pid
-output_log=/var/log/s12ryt-ipv6/panel.log
-error_log=/var/log/s12ryt-ipv6/panel.log
-
-depend() {
-    need net
-    need s12ryt-ipv6-network
-    after firewall
-}
-EOF
-}
-
-openrc_network_service_content() {
-    local project_root="$1"
-
-    cat <<EOF
-#!/sbin/openrc-run
-name="s12ryt IPv6 network integration restore"
-description="Restore s12ryt IPv6 addresses, policy routes and firewall rules"
-command="${project_root}/bin/s12ryt-ipv6"
-command_args="restore-system"
-
-depend() {
-    need net
-    after firewall
-}
-EOF
-}
-
-openrc_logrotate_content() {
-    cat <<'EOF'
-/var/log/s12ryt-ipv6/*.log {
-    daily
-    rotate 7
-    size 100M
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-}
-
-cleanup_new_ipv6_installation() {
-    local project_root="$1"
-    local remove_state="$2"
-
-    rm -f -- "${project_root}/bin/s12ryt-ipv6" "${project_root}/bin/sing-box"
-    if [[ "$remove_state" == "1" ]]; then
-        rm -rf -- "${project_root}/config" "${project_root}/secrets"
-    fi
-}
-
-install_verified_ipv6_bundle() {
-    local bundle="$1"
-    local architecture="$2"
-    local init_system="$3"
-    local project_root panel_asset singbox_asset archive_entry
-    local binary_directory temporary_directory panel_source archive_source
-    local panel_temporary singbox_temporary had_state=0
-    local unit_path network_unit_path service_path network_service_path logrotate_path command_name
-
-    panel_asset="$(panel_asset_name "$architecture")" || return 1
-    singbox_asset="$(singbox_asset_name "$architecture")" || return 1
-    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
-    binary_directory="${project_root}/bin"
-    panel_source="${bundle}/${panel_asset}"
-    archive_source="${bundle}/${singbox_asset}"
-    archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
-
-    if [[ ! -f "$panel_source" || ! -f "$archive_source" ]]; then
-        printf '錯誤：已驗證的 IPv6 專案資產不完整。\n' >&2
-        return 1
-    fi
-    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
-        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
-        return 1
-    fi
-    for command_name in chmod cp mkdir mktemp mv rm tar; do
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-            printf '錯誤：缺少必要命令：%s。\n' "$command_name" >&2
-            return 1
-        fi
-    done
-    if [[ -e "${binary_directory}/s12ryt-ipv6" || -e "${binary_directory}/sing-box" ]]; then
-        printf '錯誤：IPv6 專案 binary 已存在；請使用更新流程。\n' >&2
-        return 1
-    fi
-    if [[ -e "${project_root}/config/config.json" || -e "${project_root}/secrets/password.hash" ||
-        -e "${project_root}/secrets/management.password" ]]; then
-        had_state=1
-    fi
-
-    mkdir -p -- "$binary_directory" || {
-        printf '錯誤：無法建立 IPv6 專案 binary 目錄。\n' >&2
-        return 1
-    }
-    chmod 0755 "$project_root" "$binary_directory" || return 1
-    temporary_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-install.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案安裝暫存目錄。\n' >&2
-        return 1
-    }
-    panel_temporary="${temporary_directory}/s12ryt-ipv6"
-    singbox_temporary="${temporary_directory}/sing-box"
-
-    if ! cp -- "$panel_source" "$panel_temporary" ||
-        ! tar -xzf "$archive_source" -C "$temporary_directory" "$archive_entry" 2>/dev/null ||
-        ! mv -- "${temporary_directory}/${archive_entry}" "$singbox_temporary" ||
-        ! chmod 0755 "$panel_temporary" "$singbox_temporary" ||
-        ! mv -- "$panel_temporary" "${binary_directory}/s12ryt-ipv6" ||
-        ! mv -- "$singbox_temporary" "${binary_directory}/sing-box"; then
-        rm -rf -- "$temporary_directory"
-        cleanup_new_ipv6_installation "$project_root" 0
-        printf '錯誤：無法部署 IPv6 專案 binary。\n' >&2
-        return 1
-    fi
-    rm -rf -- "$temporary_directory"
-
-    if ((had_state == 0)); then
-        if ! S12RYT_PROJECT_ROOT="$project_root" "${binary_directory}/s12ryt-ipv6" init; then
-            cleanup_new_ipv6_installation "$project_root" 1
-            printf '錯誤：面板初始化失敗。\n' >&2
-            return 1
-        fi
-    fi
-    if [[ ! -f "${project_root}/config/config.json" || ! -f "${project_root}/secrets/password.hash" ||
-        ! -f "${project_root}/secrets/management.password" ]]; then
-        cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
-        printf '錯誤：面板初始化狀態不完整。\n' >&2
-        return 1
-    fi
-    chmod 0700 "${project_root}/config" "${project_root}/secrets" || return 1
-    chmod 0600 "${project_root}/config/config.json" "${project_root}/secrets/password.hash" \
-        "${project_root}/secrets/management.password" || return 1
-
-    if [[ "$init_system" == "systemd" ]]; then
-        unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
-        network_unit_path="${S12RYT_SYSTEMD_NETWORK_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6-network.service}"
-        if ! write_ipv6_project_file "$unit_path" 0644 "$(systemd_unit_content "$project_root")" ||
-            ! write_ipv6_project_file "$network_unit_path" 0644 "$(systemd_network_unit_content "$project_root")" ||
-            ! systemctl daemon-reload ||
-            ! systemctl enable s12ryt-ipv6-network.service ||
-            ! systemctl enable --now s12ryt-ipv6.service; then
-            systemctl disable --now s12ryt-ipv6.service >/dev/null 2>&1 || true
-            systemctl disable --now s12ryt-ipv6-network.service >/dev/null 2>&1 || true
-            rm -f -- "$unit_path" "$network_unit_path"
-            systemctl daemon-reload >/dev/null 2>&1 || true
-            cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
-            printf '錯誤：無法註冊 systemd 服務。\n' >&2
-            return 1
-        fi
+with open(sys.argv[1], encoding="utf-8") as source:
+    release = json.load(source)
+if not isinstance(release, dict):
+    raise ValueError("release metadata must be an object")
+if release.get("draft") is not False or release.get("prerelease") is not False:
+    raise ValueError("release is not stable")
+tag = release.get("tag_name")
+if not isinstance(tag, str):
+    raise ValueError("tag_name must be a string")
+print(tag)
+PY
+        )" || release_tag=''
     else
-        service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
-        network_service_path="${S12RYT_OPENRC_NETWORK_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6-network}"
-        logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
-        if ! write_ipv6_project_file "$service_path" 0755 "$(openrc_service_content "$project_root")" ||
-            ! write_ipv6_project_file "$network_service_path" 0755 "$(openrc_network_service_content "$project_root")" ||
-            ! write_ipv6_project_file "$logrotate_path" 0644 "$(openrc_logrotate_content)" ||
-            ! rc-update add s12ryt-ipv6-network default ||
-            ! rc-update add s12ryt-ipv6 default ||
-            ! rc-service s12ryt-ipv6-network start ||
-            ! rc-service s12ryt-ipv6 start; then
-            rc-service s12ryt-ipv6 stop >/dev/null 2>&1 || true
-            rc-service s12ryt-ipv6-network stop >/dev/null 2>&1 || true
-            rc-update del s12ryt-ipv6 default >/dev/null 2>&1 || true
-            rc-update del s12ryt-ipv6-network default >/dev/null 2>&1 || true
-            rm -f -- "$service_path" "$network_service_path" "$logrotate_path"
-            cleanup_new_ipv6_installation "$project_root" "$((had_state == 0 ? 1 : 0))"
-            printf '錯誤：無法註冊 OpenRC 服務。\n' >&2
-            return 1
-        fi
+        printf '錯誤：解析 GitHub Release metadata 需要 jq 或 python3。\n' >&2
+        return 1
     fi
 
-    printf '多 IPv6 出站面板安裝完成。\n'
+    if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        printf '錯誤：GitHub Release metadata 無效。\n' >&2
+        return 1
+    fi
+    printf '%s\n' "$release_tag"
 }
 
-restart_ipv6_project_service() {
-    case "$1" in
-        systemd)
-            systemctl restart s12ryt-ipv6.service
-            ;;
-        openrc)
-            rc-service s12ryt-ipv6 restart
-            ;;
-        *)
-            printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
-            return 1
-            ;;
-    esac
-}
+legacy_ipv6_installation_exists() {
+    local legacy_root="$1"
+    local unit_path="$2"
+    local network_unit_path="$3"
 
-restore_ipv6_project_update() {
-    local project_root="$1"
-    local backup_directory="$2"
-    local init_system="$3"
-    local restore_directory failed_config
-
-    restore_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-restore.XXXXXX")" || return 1
-    if ! cp -p -- "${backup_directory}/bin/s12ryt-ipv6" "${restore_directory}/s12ryt-ipv6" ||
-        ! cp -p -- "${backup_directory}/bin/sing-box" "${restore_directory}/sing-box" ||
-        ! chmod 0755 "${restore_directory}/s12ryt-ipv6" "${restore_directory}/sing-box" ||
-        ! mv -f -- "${restore_directory}/s12ryt-ipv6" "${project_root}/bin/s12ryt-ipv6" ||
-        ! mv -f -- "${restore_directory}/sing-box" "${project_root}/bin/sing-box"; then
-        rm -rf -- "$restore_directory"
-        return 1
-    fi
-    rm -rf -- "$restore_directory"
-
-    restore_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-config-restore.XXXXXX")" || return 1
-    if ! cp -a -- "${backup_directory}/config/." "$restore_directory/"; then
-        rm -rf -- "$restore_directory"
-        return 1
-    fi
-    failed_config="${project_root}/.s12ryt-ipv6-failed-config"
-    rm -rf -- "$failed_config"
-    if ! mv -- "${project_root}/config" "$failed_config" ||
-        ! mv -- "$restore_directory" "${project_root}/config"; then
-        if [[ ! -d "${project_root}/config" && -d "$failed_config" ]]; then
-            mv -- "$failed_config" "${project_root}/config" >/dev/null 2>&1 || true
-        fi
-        rm -rf -- "$restore_directory"
-        return 1
-    fi
-    rm -rf -- "$failed_config"
-    restart_ipv6_project_service "$init_system"
-}
-
-update_verified_ipv6_bundle() {
-    local bundle="$1"
-    local architecture="$2"
-    local init_system="$3"
-    local project_root panel_asset singbox_asset archive_entry
-    local panel_source archive_source backup_root backup_directory temporary_directory
-    local panel_temporary singbox_temporary health_url health_response command_name
-
-    panel_asset="$(panel_asset_name "$architecture")" || return 1
-    singbox_asset="$(singbox_asset_name "$architecture")" || return 1
-    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
-    panel_source="${bundle}/${panel_asset}"
-    archive_source="${bundle}/${singbox_asset}"
-    archive_entry="sing-box-${SINGBOX_VERSION}-linux-${architecture}/sing-box"
-
-    if [[ ! -f "$panel_source" || ! -f "$archive_source" ]]; then
-        printf '錯誤：已驗證的 IPv6 專案資產不完整。\n' >&2
-        return 1
-    fi
-    if [[ ! -x "${project_root}/bin/s12ryt-ipv6" || ! -x "${project_root}/bin/sing-box" ||
-        ! -f "${project_root}/config/config.json" || ! -f "${project_root}/config/sing-box.json" ]]; then
-        printf '錯誤：IPv6 專案安裝狀態不完整，無法更新。\n' >&2
-        return 1
-    fi
-    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
-        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
-        return 1
-    fi
-    for command_name in chmod cp curl mkdir mktemp mv rm tar; do
-        if ! command -v "$command_name" >/dev/null 2>&1; then
-            printf '錯誤：缺少必要命令：%s。\n' "$command_name" >&2
-            return 1
-        fi
-    done
-
-    backup_root="${project_root}/backups"
-    mkdir -p -- "$backup_root" || return 1
-    chmod 0700 "$backup_root" || return 1
-    backup_directory="$(mktemp -d "${backup_root}/update.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案更新備份。\n' >&2
-        return 1
-    }
-    mkdir -p -- "${backup_directory}/bin" "${backup_directory}/config" || return 1
-    if ! cp -p -- "${project_root}/bin/s12ryt-ipv6" "${backup_directory}/bin/s12ryt-ipv6" ||
-        ! cp -p -- "${project_root}/bin/sing-box" "${backup_directory}/bin/sing-box" ||
-        ! cp -a -- "${project_root}/config/." "${backup_directory}/config/"; then
-        rm -rf -- "$backup_directory"
-        printf '錯誤：無法備份 IPv6 專案更新狀態。\n' >&2
-        return 1
-    fi
-
-    temporary_directory="$(mktemp -d "${project_root}/.s12ryt-ipv6-update.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案更新暫存目錄。\n' >&2
-        return 1
-    }
-    panel_temporary="${temporary_directory}/s12ryt-ipv6"
-    singbox_temporary="${temporary_directory}/sing-box"
-    if ! cp -- "$panel_source" "$panel_temporary" ||
-        ! tar -xzf "$archive_source" -C "$temporary_directory" "$archive_entry" 2>/dev/null ||
-        ! mv -- "${temporary_directory}/${archive_entry}" "$singbox_temporary" ||
-        ! chmod 0755 "$panel_temporary" "$singbox_temporary" ||
-        ! "$singbox_temporary" check -c "${project_root}/config/sing-box.json"; then
-        rm -rf -- "$temporary_directory"
-        printf '錯誤：IPv6 專案更新資產驗證失敗。\n' >&2
-        return 1
-    fi
-    if ! mv -f -- "$panel_temporary" "${project_root}/bin/s12ryt-ipv6" ||
-        ! mv -f -- "$singbox_temporary" "${project_root}/bin/sing-box"; then
-        rm -rf -- "$temporary_directory"
-        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
-        printf '錯誤：IPv6 專案 binary 替換失敗，已嘗試恢復舊版本。\n' >&2
-        return 1
-    fi
-    rm -rf -- "$temporary_directory"
-
-    if ! restart_ipv6_project_service "$init_system"; then
-        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
-        printf '錯誤：IPv6 專案服務重啟失敗，已嘗試恢復舊版本。\n' >&2
-        return 1
-    fi
-    health_url="$(S12RYT_PROJECT_ROOT="$project_root" "${project_root}/bin/s12ryt-ipv6" health-url)" || health_url=''
-    if [[ ! "$health_url" =~ ^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9]+/healthz$ ]]; then
-        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
-        printf '錯誤：面板健康檢查 URL 無效，已恢復舊版本。\n' >&2
-        return 1
-    fi
-    health_response="$(curl -fsS --connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 "$health_url")" || health_response=''
-    if [[ "$health_response" != *'"status":"ok"'* ]]; then
-        restore_ipv6_project_update "$project_root" "$backup_directory" "$init_system" >/dev/null 2>&1 || true
-        printf '錯誤：健康檢查失敗，已恢復舊版本。\n' >&2
-        return 1
-    fi
-
-    printf '多 IPv6 出站面板更新完成；備份位於：%s\n' "$backup_directory"
-}
-
-install_ipv6_project_release() {
-    local machine_arch architecture init_system temporary_root temporary_bundle install_status=0
-
-    check_ipv6_project_preflight || return 1
-    machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
-    architecture="$(map_ipv6_project_arch "$machine_arch")" || return 1
-    init_system="$(detect_ipv6_project_init)"
-    temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-install.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案安裝暫存目錄。\n' >&2
-        return 1
-    }
-    temporary_bundle="${temporary_root}/s12ryt-ipv6-bundle.assets"
-
-    if fetch_ipv6_release_bundle "$temporary_bundle" "$architecture" &&
-        install_verified_ipv6_bundle "$temporary_bundle" "$architecture" "$init_system"; then
-        install_status=0
-    else
-        install_status=$?
-    fi
-    rm -rf -- "$temporary_root"
-    return "$install_status"
-}
-
-update_ipv6_project_release() {
-    local machine_arch architecture init_system temporary_root temporary_bundle update_status=0
-
-    check_ipv6_project_preflight || return 1
-    machine_arch="${S12RYT_MACHINE_ARCH:-$(uname -m)}"
-    architecture="$(map_ipv6_project_arch "$machine_arch")" || return 1
-    init_system="$(detect_ipv6_project_init)"
-    temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-update.XXXXXX")" || {
-        printf '錯誤：無法建立 IPv6 專案更新暫存目錄。\n' >&2
-        return 1
-    }
-    temporary_bundle="${temporary_root}/s12ryt-ipv6-bundle.assets"
-
-    if fetch_ipv6_release_bundle "$temporary_bundle" "$architecture" &&
-        update_verified_ipv6_bundle "$temporary_bundle" "$architecture" "$init_system"; then
-        update_status=0
-    else
-        update_status=$?
-    fi
-    rm -rf -- "$temporary_root"
-    return "$update_status"
-}
-
-configure_ipv6_project_state() {
-    local project_root panel_binary init_system choice confirmation password password_confirmation
-    local panel_port web_path listen_ipv6
-
-    check_ipv6_project_preflight || return 1
-    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
-    panel_binary="${project_root}/bin/s12ryt-ipv6"
-    if [[ ! -x "$panel_binary" ]]; then
-        printf '錯誤：IPv6 管理面板尚未安裝。\n' >&2
-        return 1
-    fi
-    init_system="$(detect_ipv6_project_init)"
-
-    while true; do
-        printf '%s\n' \
-            '多 IPv6 出站設定' \
-            '1. 顯示面板狀態' \
-            '2. 安全隨機重設管理密碼' \
-            '3. 自訂管理密碼' \
-            '4. 變更管理面板端點' \
-            '0. 返回'
-        choice=''
-        IFS= read -r choice || true
-        case "$choice" in
-            1)
-                S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" status || true
-                ;;
-            2)
-                printf '確認安全隨機重設管理密碼？[y/N] '
-                confirmation=''
-                IFS= read -r confirmation || true
-                if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
-                    printf '已取消管理密碼重設。\n'
-                    continue
-                fi
-                if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" reset-password --generate; then
-                    printf '錯誤：無法安全隨機重設管理密碼。\n' >&2
-                    continue
-                fi
-                restart_and_verify_ipv6_panel "$project_root" "$panel_binary" "$init_system" || true
-                ;;
-            3)
-                printf '輸入新的管理密碼（至少 24 位英數字）：'
-                password=''
-                IFS= read -r -s password || true
-                printf '\n再次輸入新的管理密碼：'
-                password_confirmation=''
-                IFS= read -r -s password_confirmation || true
-                printf '\n'
-                if [[ "$password" != "$password_confirmation" ]]; then
-                    printf '錯誤：兩次輸入的管理密碼不一致。\n' >&2
-                    continue
-                fi
-                if ! printf '%s\n' "$password" |
-                    S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" reset-password; then
-                    printf '錯誤：無法重設自訂管理密碼。\n' >&2
-                    continue
-                fi
-                restart_and_verify_ipv6_panel "$project_root" "$panel_binary" "$init_system" || true
-                ;;
-            4)
-                printf '輸入新的管理面板埠：'
-                panel_port=''
-                IFS= read -r panel_port || true
-                printf '輸入新的 Web 路徑（以 / 開頭）：'
-                web_path=''
-                IFS= read -r web_path || true
-                printf '輸入新的監聽 IPv6（- 表示雙棧 wildcard）：'
-                listen_ipv6=''
-                IFS= read -r listen_ipv6 || true
-                printf '確認變更管理面板端點為埠 %s、路徑 %s、IPv6 %s？[y/N] ' \
-                    "$panel_port" "$web_path" "$listen_ipv6"
-                confirmation=''
-                IFS= read -r confirmation || true
-                if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
-                    printf '已取消管理面板端點變更。\n'
-                    continue
-                fi
-                if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" \
-                    set-endpoint "$panel_port" "$web_path" "$listen_ipv6" "$init_system"; then
-                    printf '錯誤：管理面板端點交易失敗，既有端點已由面板回復。\n' >&2
-                    continue
-                fi
-                ;;
-            0 | '')
-                return 0
-                ;;
-            *)
-                printf '錯誤：無效的設定選項。\n' >&2
-                ;;
-        esac
-    done
-}
-
-verify_ipv6_panel_health() {
-    local project_root="$1"
-    local panel_binary="$2"
-    local health_url health_response
-
-    if ! command -v curl >/dev/null 2>&1; then
-        printf '錯誤：缺少必要命令：curl。\n' >&2
-        return 1
-    fi
-    health_url="$(S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" health-url)" || health_url=''
-    if [[ ! "$health_url" =~ ^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9]+/healthz$ ]]; then
-        printf '錯誤：面板健康檢查 URL 無效。\n' >&2
-        return 1
-    fi
-    health_response="$(curl -fsS --connect-timeout 2 --max-time 10 --retry 5 --retry-delay 1 "$health_url")" || health_response=''
-    if [[ "$health_response" != *'"status":"ok"'* ]]; then
-        printf '錯誤：面板健康檢查失敗。\n' >&2
-        return 1
-    fi
-}
-
-restart_and_verify_ipv6_panel() {
-    local project_root="$1"
-    local panel_binary="$2"
-    local init_system="$3"
-
-    if ! restart_ipv6_project_service "$init_system"; then
-        printf '錯誤：管理密碼已更新，但面板服務重啟失敗。\n' >&2
-        return 1
-    fi
-    if ! verify_ipv6_panel_health "$project_root" "$panel_binary"; then
-        printf '錯誤：管理密碼已更新，但重啟後面板未通過健康檢查。\n' >&2
-        return 1
-    fi
-    printf '管理密碼重設完成；既有登入工作階段已撤銷。\n'
-}
-
-uninstall_ipv6_project_state() {
-    local init_system="$1"
-    local project_root choice confirmation unit_path network_unit_path
-    local service_path network_service_path logrotate_path panel_binary manifest_path
-
-    project_root="${S12RYT_PROJECT_ROOT:-/opt/s12ryt-ipv6}"
-    if [[ "$project_root" != /* || "${project_root##*/}" != "s12ryt-ipv6" ]]; then
-        printf '錯誤：IPv6 專案根目錄不安全，拒絕卸載。\n' >&2
-        return 1
-    fi
-    if [[ "$init_system" != "systemd" && "$init_system" != "openrc" ]]; then
-        printf '錯誤：多 IPv6 出站僅支援 systemd 或 OpenRC。\n' >&2
-        return 1
-    fi
-
-    printf '%s\n' \
-        '卸載方式：' \
-        '1. 保留設定、機密與備份' \
-        '2. 完整清除全部專案資料' \
-        '0. 取消'
-    choice=''
-    IFS= read -r choice || true
-    case "$choice" in
-        0 | '')
-            printf '已取消多 IPv6 出站卸載。\n'
-            return 0
-            ;;
-        1 | 2)
-            ;;
-        *)
-            printf '錯誤：無效的卸載方式。\n' >&2
-            return 1
-            ;;
-    esac
-
-    printf '確認卸載多 IPv6 出站？[y/N] '
-    confirmation=''
-    IFS= read -r confirmation || true
-    if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
-        printf '已取消多 IPv6 出站卸載。\n'
+    if [[ -e "$network_unit_path" ]]; then
         return 0
     fi
-
-    panel_binary="${project_root}/bin/s12ryt-ipv6"
-    manifest_path="${project_root}/state/integration.json"
-    if [[ -x "$panel_binary" ]]; then
-        if ! S12RYT_PROJECT_ROOT="$project_root" "$panel_binary" cleanup-system; then
-            printf '錯誤：系統整合狀態清理失敗，已停止卸載。\n' >&2
-            return 1
-        fi
-    elif [[ -e "$manifest_path" ]]; then
-        printf '錯誤：缺少管理面板執行檔，無法清理系統整合狀態，已停止卸載。\n' >&2
-        return 1
+    if [[ -f "$unit_path" ]] && grep -Fq -- "$legacy_root" "$unit_path"; then
+        return 0
     fi
-
-    if [[ "$init_system" == "systemd" ]]; then
-        unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
-        network_unit_path="${S12RYT_SYSTEMD_NETWORK_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6-network.service}"
-        if ! systemctl disable --now s12ryt-ipv6.service; then
-            printf '錯誤：無法停用 systemd 服務，未移除專案資料。\n' >&2
-            return 1
-        fi
-        if ! systemctl disable --now s12ryt-ipv6-network.service; then
-            systemctl enable --now s12ryt-ipv6.service >/dev/null 2>&1 || true
-            printf '錯誤：無法停用 systemd 網路恢復服務，未移除專案資料。\n' >&2
-            return 1
-        fi
-        rm -f -- "$unit_path" "$network_unit_path"
-        if ! systemctl daemon-reload; then
-            printf '錯誤：systemd daemon-reload 失敗。\n' >&2
-            return 1
-        fi
-    else
-        service_path="${S12RYT_OPENRC_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6}"
-        network_service_path="${S12RYT_OPENRC_NETWORK_SERVICE_PATH:-/etc/init.d/s12ryt-ipv6-network}"
-        logrotate_path="${S12RYT_LOGROTATE_PATH:-/etc/logrotate.d/s12ryt-ipv6}"
-        rc-service s12ryt-ipv6 stop >/dev/null 2>&1 || true
-        rc-service s12ryt-ipv6-network stop >/dev/null 2>&1 || true
-        if ! rc-update del s12ryt-ipv6 default; then
-            printf '錯誤：無法反註冊 OpenRC 服務，未移除專案資料。\n' >&2
-            return 1
-        fi
-        if ! rc-update del s12ryt-ipv6-network default; then
-            rc-update add s12ryt-ipv6 default >/dev/null 2>&1 || true
-            rc-service s12ryt-ipv6 start >/dev/null 2>&1 || true
-            printf '錯誤：無法反註冊 OpenRC 網路恢復服務，未移除專案資料。\n' >&2
-            return 1
-        fi
-        rm -f -- "$service_path" "$network_service_path" "$logrotate_path"
+    if [[ ! -e "$unit_path" && -x "${legacy_root}/bin/s12ryt-ipv6" &&
+        -e "${legacy_root}/state/integration.json" ]]; then
+        return 0
     fi
+    return 1
+}
 
-    if [[ "$choice" == "1" ]]; then
-        rm -rf -- "${project_root:?}/bin"
-        printf '多 IPv6 出站已卸載；設定、機密與備份已保留。\n'
-    else
-        rm -rf -- "$project_root"
-        printf '多 IPv6 出站及全部專案資料已完整移除。\n'
+service_was_enabled() {
+    systemctl is-enabled "$1" >/dev/null 2>&1
+}
+
+service_was_active() {
+    systemctl is-active "$1" >/dev/null 2>&1
+}
+
+restore_legacy_ipv6_services() {
+    local main_enabled="$1"
+    local main_active="$2"
+    local network_enabled="$3"
+    local network_active="$4"
+
+    if [[ "$main_enabled" == '1' ]]; then
+        systemctl enable s12ryt-ipv6.service >/dev/null 2>&1 || true
+    fi
+    if [[ "$main_active" == '1' ]]; then
+        systemctl start s12ryt-ipv6.service >/dev/null 2>&1 || true
+    fi
+    if [[ "$network_enabled" == '1' ]]; then
+        systemctl enable s12ryt-ipv6-network.service >/dev/null 2>&1 || true
+    fi
+    if [[ "$network_active" == '1' ]]; then
+        systemctl start s12ryt-ipv6-network.service >/dev/null 2>&1 || true
     fi
 }
 
-uninstall_ipv6_project_release() {
-    local init_system
+restore_legacy_ipv6_units() {
+    local backup_directory="$1"
+    local unit_path="$2"
+    local network_unit_path="$3"
+
+    [[ ! -e "${backup_directory}/main.service" ]] || \
+        cp -p -- "${backup_directory}/main.service" "$unit_path" >/dev/null 2>&1 || true
+    [[ ! -e "${backup_directory}/network.service" ]] || \
+        cp -p -- "${backup_directory}/network.service" "$network_unit_path" >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+migrate_legacy_ipv6_installation() {
+    local legacy_root unit_path network_unit_path legacy_binary
+    local main_enabled=0 main_active=0 network_enabled=0 network_active=0
+    local backup_directory=''
+
+    legacy_root="${S12RYT_LEGACY_ROOT:-/opt/s12ryt-ipv6}"
+    unit_path="${S12RYT_SYSTEMD_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6.service}"
+    network_unit_path="${S12RYT_SYSTEMD_NETWORK_UNIT_PATH:-/etc/systemd/system/s12ryt-ipv6-network.service}"
+    legacy_binary="${legacy_root}/bin/s12ryt-ipv6"
+
+    if ! legacy_ipv6_installation_exists "$legacy_root" "$unit_path" "$network_unit_path"; then
+        return 0
+    fi
+    if [[ ! -x "$legacy_binary" ]]; then
+        printf '錯誤：偵測到舊版部署，但缺少可執行的舊版清理工具；已停止遷移。\n' >&2
+        return 1
+    fi
+
+    [[ ! -e "$unit_path" ]] || ! service_was_enabled s12ryt-ipv6.service || main_enabled=1
+    [[ ! -e "$unit_path" ]] || ! service_was_active s12ryt-ipv6.service || main_active=1
+    [[ ! -e "$network_unit_path" ]] || ! service_was_enabled s12ryt-ipv6-network.service || network_enabled=1
+    [[ ! -e "$network_unit_path" ]] || ! service_was_active s12ryt-ipv6-network.service || network_active=1
+
+    if ! "$legacy_binary" cleanup-system; then
+        printf '錯誤：舊版系統整合狀態清理失敗；已停止安裝新版。\n' >&2
+        return 1
+    fi
+
+    if [[ -e "$unit_path" ]] && ! systemctl disable --now s12ryt-ipv6.service; then
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        printf '錯誤：舊版服務移除失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+    if [[ -e "$network_unit_path" ]] && ! systemctl disable --now s12ryt-ipv6-network.service; then
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        printf '錯誤：舊版服務移除失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+
+    backup_directory="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-legacy-units.XXXXXX")" || {
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        printf '錯誤：無法建立舊版服務備份；已停止遷移。\n' >&2
+        return 1
+    }
+    if [[ -e "$unit_path" ]] && ! cp -p -- "$unit_path" "${backup_directory}/main.service"; then
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        rm -rf -- "$backup_directory"
+        printf '錯誤：舊版服務備份失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+    if [[ -e "$network_unit_path" ]] && \
+        ! cp -p -- "$network_unit_path" "${backup_directory}/network.service"; then
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        rm -rf -- "$backup_directory"
+        printf '錯誤：舊版服務備份失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+    if ! rm -f -- "$unit_path" "$network_unit_path"; then
+        restore_legacy_ipv6_units "$backup_directory" "$unit_path" "$network_unit_path"
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        rm -rf -- "$backup_directory"
+        printf '錯誤：舊版服務移除失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+
+    if ! systemctl daemon-reload; then
+        restore_legacy_ipv6_units "$backup_directory" "$unit_path" "$network_unit_path"
+        restore_legacy_ipv6_services "$main_enabled" "$main_active" "$network_enabled" "$network_active"
+        rm -rf -- "$backup_directory"
+        printf '錯誤：舊版服務移除失敗；已盡力恢復原啟用與運行狀態。\n' >&2
+        return 1
+    fi
+
+    rm -rf -- "$backup_directory"
+    printf '舊版服務已移除；%s 內的資料已完整保留。\n' "$legacy_root"
+}
+
+download_and_run_upstream_ipv6_script() {
+    local action="$1"
+    local release_api raw_base script_path temporary_directory metadata_file script_file
+    local release_tag script_url script_status=0
+
+    release_api="${S12RYT_RELEASE_API_URL:-$S12RYT_IPV6_RELEASE_API_DEFAULT}"
+    raw_base="${S12RYT_RAW_BASE_URL:-$S12RYT_IPV6_RAW_BASE_DEFAULT}"
+    case "$action" in
+        install | update)
+            script_path='install.sh'
+            ;;
+        uninstall)
+            script_path='deploy/uninstall.sh'
+            ;;
+        *)
+            printf '錯誤：不支援的多 IPv6 操作：%s。\n' "$action" >&2
+            return 1
+            ;;
+    esac
+
+    if ! command -v curl >/dev/null 2>&1; then
+        printf '錯誤：下載上游腳本需要 curl。\n' >&2
+        return 1
+    fi
+    temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/s12ryt-ipv6-upstream.XXXXXX")" || {
+        printf '錯誤：無法建立上游腳本暫存目錄。\n' >&2
+        return 1
+    }
+    metadata_file="${temporary_directory}/release.json"
+    script_file="${temporary_directory}/upstream.sh"
+
+    if ! curl -fsSL --connect-timeout 5 --max-time 60 "$release_api" -o "$metadata_file"; then
+        rm -rf -- "$temporary_directory"
+        printf '錯誤：無法查詢 s12ryt-ipv6 最新正式 Release。\n' >&2
+        return 1
+    fi
+    release_tag="$(extract_ipv6_release_tag "$metadata_file")" || {
+        rm -rf -- "$temporary_directory"
+        return 1
+    }
+    script_url="${raw_base}/${release_tag}/${script_path}"
+    if ! curl -fsSL --connect-timeout 5 --max-time 60 "$script_url" -o "$script_file"; then
+        rm -rf -- "$temporary_directory"
+        printf '錯誤：無法下載 s12ryt-ipv6 上游腳本。\n' >&2
+        return 1
+    fi
+    if ! bash -n "$script_file"; then
+        rm -rf -- "$temporary_directory"
+        printf '錯誤：上游腳本語法驗證失敗，未執行。\n' >&2
+        return 1
+    fi
+
+    VERSION="$release_tag" bash "$script_file" || script_status=$?
+    rm -rf -- "$temporary_directory"
+    if ((script_status != 0)); then
+        printf '錯誤：s12ryt-ipv6 上游腳本執行失敗。\n' >&2
+        return "$script_status"
+    fi
+}
+
+run_ipv6_project_action() {
+    local action="$1"
 
     check_ipv6_project_preflight || return 1
-    init_system="$(detect_ipv6_project_init)"
-    uninstall_ipv6_project_state "$init_system"
+    if [[ "$action" == 'install' || "$action" == 'update' ]]; then
+        migrate_legacy_ipv6_installation || return 1
+    fi
+    download_and_run_upstream_ipv6_script "$action"
 }
 
 main() {
-    case "${1:-}" in
-        preflight | '')
+    if (($# != 1)); then
+        printf '用法：%s [preflight|install|update|uninstall]\n' "${0##*/}" >&2
+        return 1
+    fi
+    case "$1" in
+        preflight)
             check_ipv6_project_preflight
             ;;
-        fetch)
-            if (($# != 3)); then
-                printf '用法：%s fetch DESTINATION ARCH\n' "${0##*/}" >&2
-                return 1
-            fi
-            fetch_ipv6_release_bundle "$2" "$3"
-            ;;
-        install)
-            if (($# != 1)); then
-                printf '用法：%s install\n' "${0##*/}" >&2
-                return 1
-            fi
-            install_ipv6_project_release
-            ;;
-        update)
-            if (($# != 1)); then
-                printf '用法：%s update\n' "${0##*/}" >&2
-                return 1
-            fi
-            update_ipv6_project_release
-            ;;
-        configure)
-            if (($# != 1)); then
-                printf '用法：%s configure\n' "${0##*/}" >&2
-                return 1
-            fi
-            configure_ipv6_project_state
-            ;;
-        uninstall)
-            if (($# != 1)); then
-                printf '用法：%s uninstall\n' "${0##*/}" >&2
-                return 1
-            fi
-            uninstall_ipv6_project_release
+        install | update | uninstall)
+            run_ipv6_project_action "$1"
             ;;
         *)
-            printf '用法：%s [preflight|fetch DESTINATION ARCH|install|update|configure|uninstall]\n' "${0##*/}" >&2
+            printf '用法：%s [preflight|install|update|uninstall]\n' "${0##*/}" >&2
             return 1
             ;;
     esac
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" && "${S12RYT_IPV6_SOURCE_ONLY:-0}" != "1" ]]; then
+if [[ "${BASH_SOURCE[0]}" == "$0" && "${S12RYT_IPV6_SOURCE_ONLY:-0}" != '1' ]]; then
     main "$@"
 fi
