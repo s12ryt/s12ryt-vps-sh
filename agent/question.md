@@ -387,3 +387,40 @@
 - Playwright desktop/mobile 至少驗證策略多請求操作、動態 mutation 按鈕防重複、取消不誤報，以及 modal 背景不可互動、單一開啟、焦點鎖定與返回；Go/`httptest` 驗證必要腳本與 DOM 契約標記。
 - 維持既有 Go format/test/vet、Bash 語法、ShellCheck、96 項 Bats、README/LICENSE、Playwright、amd64/arm64 cross-build/checksum、64 IPv6 + 28 nodes 60 秒 100 MiB idle RSS 門檻及 10 發行版 x86_64 smoke，不得刪除、略過或弱化既有斷言。
 - RED、GREEN、完整回歸、發行候選與 Release 驗證全部只使用 GitHub-hosted Actions；不得在本機執行 Go test、Bash、Bats、Playwright 或 ShellCheck作為驗收證據。
+
+## 多 IPv6 專案完整外部化契約（2026-08-05）
+
+本節取代本倉庫內嵌多 IPv6 面板的實作、安裝、發佈與驗收契約；早期章節保留為歷史紀錄。外部倉庫 `s12ryt/s12ryt-ipv6` 是此功能唯一的程式碼、Release 與部署來源，本倉庫只保留主選單入口及安全轉接 helper。
+
+### 範圍與入口
+
+- 刪除本倉庫內已失去用途的 Go/Web 面板實作、Go module、Playwright 工具鏈、舊面板 release build、資源基準腳本及其專屬測試；不得刪除主 VPS 腳本其他功能共用的檔案或測試。
+- 主選單 8 的項目仍顯示 `s12ryt-多ipv6出站`，子選單只提供 `1. 安裝`、`2. 更新`、`3. 卸載`、`0. 退出`。
+- 不再提供設定入口；服務管理、管理埠與密碼等進階操作由使用者直接使用外部專案的 `systemctl` 或 CLI。
+- `install-ipv6.sh` 僅作為外部專案轉接與舊部署遷移 helper，不再自行安裝 binary、sing-box、服務或管理設定。
+
+### 外部版本與上游執行
+
+- 安裝與更新每次查詢 `https://api.github.com/repos/s12ryt/s12ryt-ipv6/releases/latest`，只接受非 draft、非 prerelease 且 tag 精確符合 `vX.Y.Z` 的正式 Release。
+- 從解析出的同一個 tag 下載 `https://raw.githubusercontent.com/s12ryt/s12ryt-ipv6/{tag}/install.sh`，設置連線與總逾時，先通過 `bash -n`，再以 `VERSION={tag}` 執行，避免可變 `main` 與 Release 資產漂移。
+- 首次安裝不主動傳入 `MANAGEMENT_PORT`，沿用上游預設 `34466`；更新不主動傳入該變數，使上游保留既有管理埠。使用者明確設定的 `MANAGEMENT_PORT` 環境變數必須原樣傳給上游。
+- 更新沿用上游 installer 的校驗、健康檢查與回滾契約；本 helper 不重複實作外部專案內部部署流程。
+- 卸載從同一個最新正式 tag 下載並驗證 `deploy/uninstall.sh` 後執行，完全遵循上游行為：移除 systemd 服務與 `/usr/local/bin/s12ryt-ipv6`，保留 `/etc/s12ryt-ipv6`；本工具不提供完整刪除資料選項。
+
+### 平台與舊部署遷移
+
+- 所有安裝、更新與卸載操作先驗證 Linux root、systemd、amd64/x86_64 或 arm64/aarch64，並依 `/etc/os-release` 只接受 Debian 12/13 或 Ubuntu 24.04；OpenRC、其他發行版/版本及其他架構必須在碰觸舊部署前明確拒絕。
+- 舊部署以 `/opt/s12ryt-ipv6`、`/etc/systemd/system/s12ryt-ipv6-network.service` 或 `/etc/init.d/s12ryt-ipv6-network` 等舊版特徵辨識；不得只因新版同名主服務存在就誤判為舊部署。
+- 安裝或更新新版前若偵測到舊部署，先以 `/opt/s12ryt-ipv6/bin/s12ryt-ipv6 cleanup-system` 清除舊版新增的 IPv6、policy route 與防火牆狀態，再停用舊 `s12ryt-ipv6.service` 與 `s12ryt-ipv6-network.service`，移除舊 systemd unit 並執行 daemon-reload；完整保留 `/opt/s12ryt-ipv6` 內所有資料與 binary。
+- 舊版清理或服務移除任一步驟失敗時不得下載或執行新版 installer；helper 必須盡力恢復先前已啟用/運行的舊服務狀態，清楚報錯並以非零狀態結束。
+- 因新版不支援 OpenRC，OpenRC 主機必須在遷移前直接拒絕，不得修改任何舊 OpenRC 服務或資料。
+
+### TDD 與驗收
+
+- 先以現有相關 Bats 建立基線，再重寫/新增 Bats mock 契約形成 RED，且失敗原因必須是缺少上述外部化行為。
+- 隔離測試需涵蓋三項子選單接線、正式 Release JSON 驗證、tag 綁定下載、`VERSION` 與可選 `MANAGEMENT_PORT` 傳遞、安裝/更新/卸載腳本選擇、下載與語法失敗保護。
+- 平台測試需涵蓋 Debian 12/13、Ubuntu 24.04 的允許路徑，以及 OpenRC、非支援發行版/版本、非支援架構、非 Linux、非 root 在舊版遷移前拒絕。
+- 遷移測試需涵蓋無舊版直接安裝、成功清理且保留 `/opt`、清理失敗不執行新版、服務步驟失敗時盡力恢復舊服務，以及新版同名服務不被誤判為舊版。
+- 卸載測試需證明執行上游 `deploy/uninstall.sh` 且不刪除 `/etc/s12ryt-ipv6`。
+- 本次只以本機隔離 Bats/mock、Bash 語法與可用 ShellCheck/CI 靜態驗證作為證據；不在真實 VPS 上安裝、更新、卸載或修改網路、路由、防火牆及 systemd。
+- 完成後，所有保留的主專案回歸測試與文件/CI 設定不得引用已刪除的內嵌 Go/Web、release build、資源或 Playwright 資產。
