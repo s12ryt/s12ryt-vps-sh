@@ -1286,23 +1286,14 @@ install_ipv6_project() {
 update_ipv6_project() {
     local helper
 
-    helper="$(ipv6_helper_path)"
-    ensure_ipv6_helper "$helper" || return 1
-    bash "$helper" update
-}
-
-configure_ipv6_project() {
-    local helper
-
     helper="$(ensure_ipv6_helper)" || return 1
-    bash "$helper" configure
+    bash "$helper" update
 }
 
 uninstall_ipv6_project() {
     local helper
 
-    helper="$(ipv6_helper_path)"
-    ensure_ipv6_helper "$helper" || return 1
+    helper="$(ensure_ipv6_helper)" || return 1
     bash "$helper" uninstall
 }
 
@@ -1312,12 +1303,11 @@ run_ipv6_project_menu() {
     while true; do
         cat <<'EOF'
 -----
-s12ryt特供-多ipv6出站（web管理面板）
+        s12ryt-ipv6（多 IPv6 出站）
 -----
-1. 安裝
-2. 更新
-3. 設定
-4. 卸載
+        1. 安裝
+        2. 更新
+        3. 卸載
 0. 退出
 -----
 EOF
@@ -1337,9 +1327,6 @@ EOF
                 update_ipv6_project || true
                 ;;
             3)
-                configure_ipv6_project || true
-                ;;
-            4)
                 uninstall_ipv6_project || true
                 ;;
             *)
